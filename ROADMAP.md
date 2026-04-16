@@ -53,11 +53,11 @@
 - [x] Middleware: requireTeamRole (leader/elder/member check)
 
 ### Frontend
-- [ ] /admin page (user list + create user form + role management)
-- [ ] /teams page (list my teams + create team button)
-- [ ] /teams/[id] page (team detail, member list, projects list)
-- [ ] Add member to team modal (select user + assign role)
-- [ ] /profile page (view/edit name, avatar)
+- [x] /admin page (user list + create user form + role management)
+- [x] /teams page (list my teams + create team button)
+- [x] /teams/[id] page (team detail, member list, projects list)
+- [x] Add member to team modal (select user + assign role)
+- [x] /profile page (view/edit name, avatar)
 
 ---
 

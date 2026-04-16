@@ -38,6 +38,15 @@ All notable changes are documented here, organized by phase.
 - Built teams API: POST/GET/DELETE /api/teams, GET /api/teams/:id with members, POST/DELETE /api/teams/:id/members
 - Implemented requireTeamRole middleware with role hierarchy (leader > elder > member) and owner/admin bypass
 - Auto-generates team slugs from name with collision handling
+- Built /admin page: user list with inline role editing, create user modal (owner/admin only)
+- Built /teams page: team cards grid with create team modal and delete support
+- Built /teams/[id] page: member list, no-leader warning banner, add/remove member modal (add/remove owner/admin only)
+- Built AddMemberModal, CreateTeamModal, CreateUserModal, TeamMemberList organisms
+- Built atoms: Button, Badge, Input, Label, Avatar, Spinner, Select
+- Built molecules: FormField, EmptyState, ConfirmDialog, UserAvatar, StatusBadge
+- Built Sidebar organism with role-gated Admin link
+- Built useUsers and useTeams hooks with full CRUD; users.service.ts and teams.service.ts
+- Built /profile page (display-only — no PUT /api/auth/me endpoint yet)
 
 ---
 
