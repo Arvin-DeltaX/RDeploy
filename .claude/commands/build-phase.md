@@ -37,8 +37,13 @@ After each task completes:
 ## Step 5 — Phase Complete
 
 After all tasks are done:
-1. Run `/phase-finish $ARGUMENTS` — this triggers code review + security check + merges to main.
-2. Report a summary of everything built.
+1. Run `/typecheck` — confirm zero TypeScript errors on both backend and frontend before merging.
+2. Run `/phase-finish $ARGUMENTS` — this triggers:
+   - Code review + security check
+   - Push phase branch to remote (backup)
+   - Merge to main locally
+   - Prompt to push main to remote
+3. Report a summary of everything built.
 
 ## Rules
 

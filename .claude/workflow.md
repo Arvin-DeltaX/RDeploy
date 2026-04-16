@@ -57,6 +57,27 @@ If you completed work outside those commands, run `/update-docs` manually:
 
 ## Slash Commands (You Trigger These)
 
+### Local Development
+
+| Command | Model | Use For |
+|---------|-------|---------|
+| `/setup` | sonnet | **First-time setup** — install deps, copy .env, run migrations, seed DB |
+| `/dev` | — | Start backend + frontend dev servers with troubleshooting guide |
+| `/health` | sonnet | Diagnose local stack — env vars, deps, DB, TypeScript, server reachability |
+| `/typecheck` | haiku | Run `tsc --noEmit` on backend + frontend, list all errors |
+| `/build` | — | Production build for both apps |
+| `/db` | — | Prisma commands — migrate, generate, seed, studio |
+
+### Git
+
+| Command | Model | Use For |
+|---------|-------|---------|
+| `/commit` | sonnet | TypeCheck → show diff → auto-generate conventional commit message → confirm → commit |
+| `/push` | haiku | Safety-check branch (blocks main) → list commits → push to remote |
+| `/ship` | sonnet | `/commit` + `/push` in one step. Optionally pass a message: `/ship feat(x): desc` |
+
+### Feature Development
+
 | Command | Model | Use For |
 |---------|-------|---------|
 | `/next` | haiku | Find next uncompleted task, describe it, ask for confirmation before starting |
@@ -77,7 +98,7 @@ If you completed work outside those commands, run `/update-docs` manually:
 | `frontend-builder` | sonnet | Any frontend code — pages, components, hooks |
 | `db-designer` | opus | Schema changes, Prisma models, migrations |
 | `docker-engineer` | sonnet | Docker, Traefik, deployment logic |
-| `debugger` | sonnet | Something is broken or throwing errors |
+| `debugger` | sonnet | Something is broken or throwing errors (also used by `/fix` and `/health`) |
 | `code-reviewer` | sonnet | Before committing or merging a phase |
 | `docs-updater` | haiku | After any task completes |
 | `security-checker` | sonnet | Auth, env vars, Docker, deployment code |
@@ -85,6 +106,13 @@ If you completed work outside those commands, run `/update-docs` manually:
 ### When to Use Which
 
 ```
+Fresh clone / first time running?  → /setup (you trigger)
+Something seems broken locally?    → /health (you trigger) — diagnoses env, DB, TS, servers
+TypeScript errors before commit?   → /typecheck (you trigger)
+Start dev servers?                 → /dev (you trigger — read the guide)
+Save work with a commit?           → /commit (typecheck → diff → auto message → confirm → commit)
+Push branch to remote?             → /push (branch safety check → push)
+Commit + push in one shot?         → /ship (chains /commit then /push, optional message arg)
 Build an entire phase hands-free?  → /build-phase {number} (you trigger)
   └── branch → all tasks in order → docs → review → security → merge
 Designing something new?           → /architect (you trigger)
