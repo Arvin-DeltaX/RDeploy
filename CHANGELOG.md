@@ -51,7 +51,7 @@ All notable changes are documented here, organized by phase.
 ---
 
 ## [Phase 3] - Projects
-> Status: 🔲 Not Started
+> Status: 🟡 In Progress
 
 ### Added
 - (tasks will be logged here as they complete)
