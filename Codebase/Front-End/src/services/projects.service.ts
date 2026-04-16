@@ -13,23 +13,23 @@ export interface CreateProjectPayload {
 }
 
 export async function listAllProjects(): Promise<ProjectWithTeam[]> {
-  const res = await api.get<{ data: { projects: ProjectWithTeam[] } }>("/api/projects");
-  return res.data.data.projects;
+  const res = await api.get<{ data: ProjectWithTeam[] }>("/api/projects");
+  return res.data.data;
 }
 
 export async function listTeamProjects(teamId: string): Promise<Project[]> {
-  const res = await api.get<{ data: { projects: Project[] } }>(`/api/teams/${teamId}/projects`);
-  return res.data.data.projects;
+  const res = await api.get<{ data: Project[] }>(`/api/teams/${teamId}/projects`);
+  return res.data.data;
 }
 
 export async function getProject(id: string): Promise<ProjectWithTeam> {
-  const res = await api.get<{ data: { project: ProjectWithTeam } }>(`/api/projects/${id}`);
-  return res.data.data.project;
+  const res = await api.get<{ data: ProjectWithTeam }>(`/api/projects/${id}`);
+  return res.data.data;
 }
 
 export async function createProject(teamId: string, payload: CreateProjectPayload): Promise<Project> {
-  const res = await api.post<{ data: { project: Project } }>(`/api/teams/${teamId}/projects`, payload);
-  return res.data.data.project;
+  const res = await api.post<{ data: Project }>(`/api/teams/${teamId}/projects`, payload);
+  return res.data.data;
 }
 
 export async function deleteProject(id: string): Promise<void> {
@@ -37,8 +37,8 @@ export async function deleteProject(id: string): Promise<void> {
 }
 
 export async function listProjectMembers(projectId: string): Promise<User[]> {
-  const res = await api.get<{ data: { members: User[] } }>(`/api/projects/${projectId}/members`);
-  return res.data.data.members;
+  const res = await api.get<{ data: User[] }>(`/api/projects/${projectId}/members`);
+  return res.data.data;
 }
 
 export async function assignProjectMembers(projectId: string, userIds: string[]): Promise<void> {
