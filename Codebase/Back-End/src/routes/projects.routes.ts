@@ -114,6 +114,8 @@ router.get(
 );
 
 // ─── DELETE /api/projects/:id ─────────────────────────────────────────────────
+// Authorization is enforced in the service layer (leader role required).
+// requireTeamRole cannot be applied here because the route uses :projectId, not :teamId.
 
 router.delete(
   "/projects/:id",
@@ -139,6 +141,8 @@ router.delete(
 );
 
 // ─── POST /api/projects/:id/members ──────────────────────────────────────────
+// Authorization is enforced in the service layer (leader role required).
+// requireTeamRole cannot be applied here because the route uses :projectId, not :teamId.
 
 router.post(
   "/projects/:id/members",
@@ -177,6 +181,8 @@ router.post(
 );
 
 // ─── DELETE /api/projects/:id/members/:userId ─────────────────────────────────
+// Authorization is enforced in the service layer (leader role required).
+// requireTeamRole cannot be applied here because the route uses :projectId, not :teamId.
 
 router.delete(
   "/projects/:id/members/:userId",

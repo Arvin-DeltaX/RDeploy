@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import prisma from "../lib/prisma";
 import { slugify } from "../utils/slugify";
 
@@ -156,12 +156,12 @@ function getProjectWorkspace(teamSlug: string, projectSlug: string): string {
 
 function stopAndRemoveContainer(containerId: string): void {
   try {
-    execSync(`docker stop ${containerId}`, { stdio: "ignore" });
+    spawnSync('docker', ['stop', containerId], { stdio: 'ignore' });
   } catch {
     // container may already be stopped — ignore
   }
   try {
-    execSync(`docker rm ${containerId}`, { stdio: "ignore" });
+    spawnSync('docker', ['rm', containerId], { stdio: 'ignore' });
   } catch {
     // container may not exist — ignore
   }
@@ -169,7 +169,7 @@ function stopAndRemoveContainer(containerId: string): void {
 
 function removeDockerImage(projectSlug: string, teamSlug: string): void {
   try {
-    execSync(`docker rmi rdeploy-${projectSlug}-${teamSlug}`, { stdio: "ignore" });
+    spawnSync('docker', ['rmi', `rdeploy-${projectSlug}-${teamSlug}`], { stdio: 'ignore' });
   } catch {
     // image may not exist — ignore
   }
@@ -177,7 +177,12 @@ function removeDockerImage(projectSlug: string, teamSlug: string): void {
 
 function removeWorkspace(workspacePath: string): void {
   try {
-    fs.rmSync(workspacePath, { recursive: true, force: true });
+    const resolved = path.resolve(workspacePath);
+    const base = path.resolve(getWorkspaceBase());
+    if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+      throw new Error('Path traversal attempt detected');
+    }
+    fs.rmSync(resolved, { recursive: true, force: true });
   } catch {
     // workspace may not exist — ignore
   }
