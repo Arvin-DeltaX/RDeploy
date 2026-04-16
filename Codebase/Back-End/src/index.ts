@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
+import authRouter from "./routes/auth.routes";
 
 dotenv.config();
 
@@ -15,6 +16,8 @@ app.use(express.json());
 app.get("/api/health", (_req, res) => {
   res.json({ data: { status: "ok" } });
 });
+
+app.use("/api/auth", authRouter);
 
 async function start(): Promise<void> {
   try {
