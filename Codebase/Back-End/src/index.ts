@@ -5,6 +5,7 @@ import prisma from "./lib/prisma";
 import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
 import teamsRouter from "./routes/teams.routes";
+import projectsRouter from "./routes/projects.routes";
 
 dotenv.config();
 
@@ -44,6 +45,7 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/teams", teamsRouter);
+app.use("/api", projectsRouter);
 
 async function start(): Promise<void> {
   try {

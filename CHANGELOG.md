@@ -30,6 +30,24 @@ All notable changes are documented here, organized by phase.
 
 ---
 
+## [Phase 3] - Projects
+> Status: 🟡 In Progress
+
+### Backend
+- Built projects service with full CRUD: createProject, listTeamProjects, listAllProjects, getProject, deleteProject
+- Implemented project slug auto-generation with collision handling (per-team unique slugs)
+- Built POST /api/teams/:teamId/projects with requireTeamRole("leader") guard, optional dockerfilePath field (default "Dockerfile")
+- Built GET /api/teams/:teamId/projects with team member permission check
+- Built GET /api/projects (company-wide feed) with team-scoped filtering for regular users
+- Built GET /api/projects/:id with team member access control
+- Built DELETE /api/projects/:id with atomic cleanup: stop + remove Docker container, remove image, delete workspace directory, cascade DB delete
+- Built project member assignment: POST /api/projects/:id/members, DELETE /api/projects/:id/members/:userId, GET /api/projects/:id/members
+- All endpoints return consistent { data: {...} } / { error: "message" } shapes
+- Proper error handling with appropriate HTTP status codes (400/403/404/500)
+- All project operations require appropriate team role or platform role permissions
+
+---
+
 ## [Phase 2] - Users & Teams
 > Status: ✅ Complete
 

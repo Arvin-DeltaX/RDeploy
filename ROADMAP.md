@@ -64,14 +64,14 @@
 ## Phase 3 — Projects
 
 ### Backend
-- [ ] POST /api/teams/:teamId/projects (create project — include optional `dockerfilePath` field, default `"Dockerfile"`)
-- [ ] GET /api/teams/:teamId/projects
-- [ ] GET /api/projects (all projects — company-wide feed)
-- [ ] GET /api/projects/:id
-- [ ] DELETE /api/projects/:id (hard delete: stop container + remove workspace + delete DB records)
-- [ ] POST /api/projects/:id/members (assign members)
-- [ ] DELETE /api/projects/:id/members/:userId
-- [ ] GET /api/projects/:id/members
+- [x] POST /api/teams/:teamId/projects (create project — include optional `dockerfilePath` field, default `"Dockerfile"`)
+- [x] GET /api/teams/:teamId/projects
+- [x] GET /api/projects (all projects — company-wide feed)
+- [x] GET /api/projects/:id
+- [x] DELETE /api/projects/:id (hard delete: stop container + remove workspace + delete DB records)
+- [x] POST /api/projects/:id/members (assign members)
+- [x] DELETE /api/projects/:id/members/:userId
+- [x] GET /api/projects/:id/members
 
 ### Frontend
 - [ ] / dashboard (all projects feed with status badges + team labels)
