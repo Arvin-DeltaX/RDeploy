@@ -34,7 +34,10 @@ All notable changes are documented here, organized by phase.
 > Status: 🟡 In Progress
 
 ### Added
-- (tasks will be logged here as they complete)
+- Built admin user management API: POST/GET/PUT/DELETE /api/admin/users with zod validation and platform role guards
+- Built teams API: POST/GET/DELETE /api/teams, GET /api/teams/:id with members, POST/DELETE /api/teams/:id/members
+- Implemented requireTeamRole middleware with role hierarchy (leader > elder > member) and owner/admin bypass
+- Auto-generates team slugs from name with collision handling
 
 ---
 

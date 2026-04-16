@@ -40,17 +40,17 @@
 ## Phase 2 — Users & Teams
 
 ### Backend
-- [ ] POST /api/admin/users (create user with default password)
-- [ ] GET /api/admin/users (list all users)
-- [ ] PUT /api/admin/users/:id (update platform role)
-- [ ] DELETE /api/admin/users/:id
-- [ ] POST /api/teams (owner/admin only)
-- [ ] GET /api/teams (my teams)
-- [ ] GET /api/teams/:id (team detail + members list)
-- [ ] DELETE /api/teams/:id
-- [ ] POST /api/teams/:id/members (add member with role)
-- [ ] DELETE /api/teams/:id/members/:userId
-- [ ] Middleware: requireTeamRole (leader/elder/member check)
+- [x] POST /api/admin/users (create user with default password)
+- [x] GET /api/admin/users (list all users)
+- [x] PUT /api/admin/users/:id (update platform role)
+- [x] DELETE /api/admin/users/:id
+- [x] POST /api/teams (owner/admin only)
+- [x] GET /api/teams (my teams)
+- [x] GET /api/teams/:id (team detail + members list)
+- [x] DELETE /api/teams/:id
+- [x] POST /api/teams/:id/members (add member with role)
+- [x] DELETE /api/teams/:id/members/:userId
+- [x] Middleware: requireTeamRole (leader/elder/member check)
 
 ### Frontend
 - [ ] /admin page (user list + create user form + role management)
