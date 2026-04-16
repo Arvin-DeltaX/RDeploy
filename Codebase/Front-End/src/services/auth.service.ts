@@ -1,0 +1,24 @@
+import api from "@/lib/api";
+import type { User } from "@/types/user.types";
+
+export interface LoginResponse {
+  token: string;
+  user: User;
+}
+
+export async function login(email: string, password: string): Promise<LoginResponse> {
+  const res = await api.post<{ data: LoginResponse }>("/api/auth/login", { email, password });
+  return res.data.data;
+}
+
+export async function getMe(): Promise<User> {
+  const res = await api.get<{ data: { user: User } }>("/api/auth/me");
+  return res.data.data.user;
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  await api.post("/api/auth/change-password", { currentPassword, newPassword });
+}
