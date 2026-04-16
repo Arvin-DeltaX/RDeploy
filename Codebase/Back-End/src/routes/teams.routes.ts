@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
 import { requirePlatformRole } from "../middleware/requirePlatformRole";
+import { requireTeamRole } from "../middleware/requireTeamRole";
 import * as teamsService from "../services/teams.service";
 
 type PlatformRole = "owner" | "admin" | "user";
@@ -94,7 +95,7 @@ router.delete(
 router.post(
   "/:id/members",
   requireAuth,
-  requirePlatformRole("owner", "admin"),
+  requireTeamRole("leader"),
   async (req: Request, res: Response): Promise<void> => {
     const parsed = addMemberSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -124,7 +125,7 @@ router.post(
 router.delete(
   "/:id/members/:userId",
   requireAuth,
-  requirePlatformRole("owner", "admin"),
+  requireTeamRole("leader"),
   async (req: Request, res: Response): Promise<void> => {
     try {
       await teamsService.removeMember(
