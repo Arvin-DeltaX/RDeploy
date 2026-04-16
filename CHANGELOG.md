@@ -16,6 +16,18 @@ All notable changes are documented here, organized by phase.
 - Built requireAuth and requirePlatformRole middleware
 - Created seed file for owner account (arvin@thesx.co)
 
+### Frontend
+- Initialized Next.js 14 + TypeScript + Tailwind CSS with dark mode (shadcn/ui CSS variables)
+- Configured TanStack Query provider, sonner Toaster in root layout
+- Built Axios instance (lib/api.ts) with JWT Bearer interceptor and 401 → logout handler
+- Built Zustand auth store (token + user, persisted to localStorage)
+- Built DashboardGuard route guard — redirects unauthenticated users to /login, mustChangePassword users to /change-password
+- Built /login page with react-hook-form + zod validation
+- Built /change-password page with confirm field and forced redirect logic
+- Created auth service, useAuth hook (useLogin, useLogout, useChangePassword mutations)
+- Created type definitions: User, Team, Project, ApiResponse
+- Created constants: ROUTES, STATUS_LABELS, STATUS_COLORS, HEALTH_COLORS
+
 ---
 
 ## [Phase 2] - Users & Teams

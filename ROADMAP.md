@@ -21,19 +21,19 @@
 - [x] Force password change on first login (mustChangePassword flag)
 
 ### Frontend Setup
-- [ ] Initialize Next.js + TypeScript + Tailwind
-- [ ] Install and configure shadcn/ui (dark mode)
-- [ ] Install axios, TanStack Query, react-hook-form, zod, sonner, zustand
-- [ ] Setup lib/api.ts — axios instance with JWT interceptor + 401 → logout handler
-- [ ] Setup TanStack Query provider (QueryClientProvider in root layout)
-- [ ] Setup sonner Toaster in root layout
-- [ ] Auth store (Zustand) — JWT token + current user
-- [ ] Route guard (redirect to /login if not authenticated)
-- [ ] Forced redirect to /change-password if mustChangePassword is true
+- [x] Initialize Next.js + TypeScript + Tailwind
+- [x] Install and configure shadcn/ui (dark mode)
+- [x] Install axios, TanStack Query, react-hook-form, zod, sonner, zustand
+- [x] Setup lib/api.ts — axios instance with JWT interceptor + 401 → logout handler
+- [x] Setup TanStack Query provider (QueryClientProvider in root layout)
+- [x] Setup sonner Toaster in root layout
+- [x] Auth store (Zustand) — JWT token + current user
+- [x] Route guard (redirect to /login if not authenticated)
+- [x] Forced redirect to /change-password if mustChangePassword is true
 
 ### Auth Pages
-- [ ] /login page
-- [ ] /change-password page
+- [x] /login page
+- [x] /change-password page
 
 ---
 
