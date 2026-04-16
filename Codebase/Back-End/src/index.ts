@@ -6,11 +6,34 @@ import authRouter from "./routes/auth.routes";
 
 dotenv.config();
 
+// Validate required environment variables before starting
+const REQUIRED_ENV_VARS = ["JWT_SECRET", "ENCRYPTION_KEY"] as const;
+for (const key of REQUIRED_ENV_VARS) {
+  if (!process.env[key]) {
+    console.error(`FATAL: Required environment variable ${key} is not set`);
+    process.exit(1);
+  }
+}
+
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+  : [];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (same-origin, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => {

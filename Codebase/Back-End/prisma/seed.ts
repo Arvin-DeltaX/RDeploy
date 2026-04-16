@@ -4,7 +4,11 @@ import bcrypt from "bcrypt";
 const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
-  const password = process.env.SEED_OWNER_PASSWORD || "changeme";
+  const password = process.env.SEED_OWNER_PASSWORD;
+  if (!password) {
+    console.error("FATAL: SEED_OWNER_PASSWORD environment variable is not set");
+    process.exit(1);
+  }
   const hashedPassword = await bcrypt.hash(password, 10);
 
   const owner = await prisma.user.upsert({
