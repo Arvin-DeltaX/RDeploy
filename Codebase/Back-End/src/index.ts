@@ -3,6 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import prisma from "./lib/prisma";
 import authRouter from "./routes/auth.routes";
+import adminRouter from "./routes/admin.routes";
+import teamsRouter from "./routes/teams.routes";
 
 dotenv.config();
 
@@ -40,6 +42,8 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRouter);
+app.use("/api/admin", adminRouter);
+app.use("/api/teams", teamsRouter);
 
 async function start(): Promise<void> {
   try {
