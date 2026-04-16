@@ -74,10 +74,10 @@
 - [x] GET /api/projects/:id/members
 
 ### Frontend
-- [ ] / dashboard (all projects feed with status badges + team labels)
-- [ ] /teams/[id]/projects/new page (name + GitHub URL + optional Dockerfile path form)
-- [ ] /projects/[id] page (project detail shell)
-- [ ] /projects/[id]/members page (assign/remove members)
+- [x] / dashboard (all projects feed with status badges + team labels)
+- [x] /teams/[id]/projects/new page (name + GitHub URL + optional Dockerfile path form)
+- [x] /projects/[id] page (project detail shell)
+- [x] /projects/[id]/members page (assign/remove members)
 
 ---
 

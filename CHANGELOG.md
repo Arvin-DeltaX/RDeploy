@@ -69,10 +69,20 @@ All notable changes are documented here, organized by phase.
 ---
 
 ## [Phase 3] - Projects
-> Status: 🟡 In Progress
+> Status: ✅ Complete
 
 ### Added
-- (tasks will be logged here as they complete)
+- Built projects.service.ts with listAllProjects, listTeamProjects, getProject, createProject, deleteProject, listProjectMembers, assignProjectMembers, removeProjectMember
+- Built useProjects.ts hook with useAllProjects, useTeamProjects, useProject, useCreateProject, useDeleteProject, useProjectMembers, useAssignProjectMembers, useRemoveProjectMember (TanStack Query + sonner toasts)
+- Built / dashboard page — company-wide projects feed, status badges, health badges, team labels, loading/error/empty states
+- Built /teams/[id]/projects/new page — create project form with name, GitHub URL, optional Dockerfile path, zod validation, leader/admin permission guard, redirects to project detail on success
+- Built /projects/[id] page — project detail shell showing name, status badge, health badge, repo URL, Dockerfile path, live URL (when running), deploy logs snapshot
+- Built /projects/[id]/members page — list assigned members, assign/remove with leader/admin permission guard
+- Built ProjectCard organism — clickable card with status badge, health indicator, team label, repo URL
+- Built HealthBadge molecule — colored dot + label for healthy/unhealthy/unknown
+- Built AssignMemberModal organism — select user from available team members and assign to project
+- Built ProjectMemberList organism — table of assigned members with remove action
+- Updated /teams/[id] page — added "New Project" button for leaders and admins
 
 ---
 
