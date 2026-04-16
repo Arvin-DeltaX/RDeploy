@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlatformRole {
+  owner
+  admin
+  user
+}
+
+enum TeamRole {
+  leader
+  elder
+  member
+}
+
+enum ProjectStatus {
+  pending
+  cloning
+  ready
+  building
+  running
+  failed
+  stopped
+}
+
+enum HealthStatus {
+  healthy
+  unhealthy
+  unknown
+}
+
+model User {
+  id                 String       @id @default(uuid())
+  email              String       @unique
+  password           String
+  name               String
+  avatarUrl          String?
+  platformRole       PlatformRole @default(user)
+  mustChangePassword Boolean      @default(true)
+  githubId           String?      @unique
+  githubUsername      String?
+  githubAccessToken   String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  teamMembers        TeamMember[]
+  projectAssignments ProjectAssignment[]
+}
+
+model Team {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members  TeamMember[]
+  projects Project[]
+}
+
+model TeamMember {
+  id       String   @id @default(uuid())
+  userId   String
+  teamId   String
+  role     TeamRole
+  joinedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+}
+
+model Project {
+  id             String        @id @default(uuid())
+  teamId         String
+  name           String
+  slug           String
+  repoUrl        String
+  dockerfilePath String        @default("Dockerfile")
+  status         ProjectStatus @default(pending)
+  healthStatus   HealthStatus  @default(unknown)
+  port           Int?
+  containerId    String?
+  restartCount   Int           @default(0)
+  exitCode       Int?
+  deployLogs     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  team        Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  envVars     EnvVar[]
+  assignments ProjectAssignment[]
+
+  @@unique([teamId, slug])
+}
+
+model ProjectAssignment {
+  id         String   @id @default(uuid())
+  projectId  String
+  userId     String
+  assignedAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model EnvVar {
+  id        String   @id @default(uuid())
+  projectId String
+  key       String
+  value     String   @default("")
+  isSecret  Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, key])
+}
