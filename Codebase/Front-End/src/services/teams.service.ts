@@ -10,8 +10,8 @@ export interface TeamDetail {
 }
 
 export async function listTeams(): Promise<Team[]> {
-  const res = await api.get<{ data: Team[] }>("/api/teams");
-  return res.data.data;
+  const res = await api.get<{ data: { teams: Team[] } }>("/api/teams");
+  return res.data.data.teams;
 }
 
 export async function getTeam(id: string): Promise<TeamDetail> {

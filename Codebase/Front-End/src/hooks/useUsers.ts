@@ -2,10 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as usersService from "@/services/users.service";
 import type { PlatformRole } from "@/types/user.types";
-
-interface AxiosErrorLike {
-  response?: { data?: { error?: string } };
-}
+import type { AxiosErrorLike } from "@/types/api.types";
 
 export function useUsers(enabled = true) {
   return useQuery({

@@ -5,3 +5,7 @@ export interface ApiResponse<T> {
 export interface ApiError {
   error: string;
 }
+
+export interface AxiosErrorLike {
+  response?: { data?: { error?: string } };
+}

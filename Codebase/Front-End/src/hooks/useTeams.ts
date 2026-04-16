@@ -2,10 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as teamsService from "@/services/teams.service";
 import type { TeamRole } from "@/types/team.types";
-
-interface AxiosErrorLike {
-  response?: { data?: { error?: string } };
-}
+import type { AxiosErrorLike } from "@/types/api.types";
 
 export function useTeams() {
   return useQuery({
