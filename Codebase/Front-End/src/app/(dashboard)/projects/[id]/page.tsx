@@ -3,6 +3,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Users, ExternalLink } from "lucide-react";
 import { useProject } from "@/hooks/useProjects";
+import { useTeam } from "@/hooks/useTeams";
 import { useAuthStore } from "@/store/auth.store";
 import { Spinner } from "@/components/atoms/Spinner";
 import { Button } from "@/components/atoms/Button";
@@ -18,6 +19,10 @@ export default function ProjectDetailPage() {
   const { data: project, isLoading, isError } = useProject(id);
 
   const isAdmin = user?.platformRole === "owner" || user?.platformRole === "admin";
+  const { data: teamData } = useTeam(project?.teamId ?? "");
+  const currentUserTeamMember = teamData?.team.members.find((m) => m.userId === user?.id);
+  const isLeader = currentUserTeamMember?.role === "leader";
+  const canManageMembers = isAdmin || isLeader;
 
   if (isLoading) {
     return (
@@ -67,7 +72,7 @@ export default function ProjectDetailPage() {
           </p>
         </div>
 
-        {(isAdmin) && (
+        {canManageMembers && (
           <Link href={ROUTES.PROJECT_MEMBERS(id)}>
             <Button variant="outline" size="sm">
               <Users className="h-4 w-4" />
