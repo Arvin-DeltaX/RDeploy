@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { PrismaClient } from "@prisma/client";
+import prisma from "./lib/prisma";
 import authRouter from "./routes/auth.routes";
 
 dotenv.config();
@@ -16,7 +16,6 @@ for (const key of REQUIRED_ENV_VARS) {
 }
 
 const app = express();
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 5000;
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -58,4 +57,4 @@ async function start(): Promise<void> {
 
 start();
 
-export { app, prisma };
+export { app };

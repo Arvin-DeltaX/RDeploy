@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { prisma } from "../index";
+import prisma from "../lib/prisma";
 
 interface UserPublic {
   id: string;

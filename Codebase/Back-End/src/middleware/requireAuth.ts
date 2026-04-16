@@ -31,7 +31,8 @@ export function requireAuth(
   const secret = process.env.JWT_SECRET;
 
   if (!secret) {
-    res.status(500).json({ error: "JWT_SECRET is not configured" });
+    console.error("requireAuth: JWT_SECRET is not configured");
+    res.status(500).json({ error: "Internal server error" });
     return;
   }
 
