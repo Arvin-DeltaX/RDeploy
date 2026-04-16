@@ -7,10 +7,11 @@ interface AxiosErrorLike {
   response?: { data?: { error?: string } };
 }
 
-export function useUsers() {
+export function useUsers(enabled = true) {
   return useQuery({
     queryKey: ["users"],
     queryFn: usersService.listUsers,
+    enabled,
   });
 }
 

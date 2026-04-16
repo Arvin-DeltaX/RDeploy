@@ -19,16 +19,15 @@ export default function TeamDetailPage() {
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
 
   const { data, isLoading } = useTeam(id);
-  const { data: allUsers } = useUsers();
+  const isAdmin =
+    user?.platformRole === "owner" || user?.platformRole === "admin";
+  const { data: allUsers } = useUsers(isAdmin);
   const addMember = useAddMember();
   const removeMember = useRemoveMember();
 
-  const isAdmin =
-    user?.platformRole === "owner" || user?.platformRole === "admin";
+  const hasLeader = data?.team.members.some((m) => m.role === "leader") ?? true;
 
-  const hasLeader = data?.members.some((m) => m.role === "leader") ?? true;
-
-  const existingMemberUserIds = new Set(data?.members.map((m) => m.userId) ?? []);
+  const existingMemberUserIds = new Set(data?.team.members.map((m) => m.userId) ?? []);
   const availableUsers = (allUsers ?? []).filter(
     (u) => !existingMemberUserIds.has(u.id)
   );
@@ -62,7 +61,8 @@ export default function TeamDetailPage() {
     );
   }
 
-  const { team, members } = data;
+  const { team } = data;
+  const members = team.members;
 
   return (
     <div className="space-y-6">

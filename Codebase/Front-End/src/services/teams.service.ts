@@ -1,9 +1,12 @@
 import api from "@/lib/api";
 import type { Team, TeamMember, TeamRole } from "@/types/team.types";
 
-export interface TeamDetail {
-  team: Team;
+export interface TeamWithMembers extends Team {
   members: TeamMember[];
+}
+
+export interface TeamDetail {
+  team: TeamWithMembers;
 }
 
 export async function listTeams(): Promise<Team[]> {
