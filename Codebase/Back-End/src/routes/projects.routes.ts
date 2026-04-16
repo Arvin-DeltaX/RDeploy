@@ -19,8 +19,14 @@ const router = Router();
 
 const createProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
-  repoUrl: z.string().url("repoUrl must be a valid URL"),
-  dockerfilePath: z.string().min(1).optional(),
+  repoUrl: z.string().url("repoUrl must be a valid URL").refine(
+    (v) => { try { return new URL(v).hostname === 'github.com'; } catch { return false; } },
+    { message: 'repoUrl must be a github.com URL' }
+  ),
+  dockerfilePath: z.string().min(1).refine(
+    (v) => !v.split('/').includes('..'),
+    { message: 'dockerfilePath must not contain path traversal' }
+  ).default('Dockerfile').optional(),
 });
 
 const assignMembersSchema = z.object({

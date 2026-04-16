@@ -176,12 +176,12 @@ function removeDockerImage(projectSlug: string, teamSlug: string): void {
 }
 
 function removeWorkspace(workspacePath: string): void {
+  const resolved = path.resolve(workspacePath);
+  const base = path.resolve(getWorkspaceBase());
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+    throw new Error('Path traversal attempt detected');
+  }
   try {
-    const resolved = path.resolve(workspacePath);
-    const base = path.resolve(getWorkspaceBase());
-    if (!resolved.startsWith(base + path.sep) && resolved !== base) {
-      throw new Error('Path traversal attempt detected');
-    }
     fs.rmSync(resolved, { recursive: true, force: true });
   } catch {
     // workspace may not exist — ignore
