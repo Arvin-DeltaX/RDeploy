@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(node:*)",
+      "Bash(docker:*)",
+      "Bash(docker-compose:*)",
+      "Bash(git:*)",
+      "Bash(prisma:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(rm:*)",
+      "Bash(touch:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(tsc:*)"
+    ],
+    "deny": []
+  }
+}
