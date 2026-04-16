@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { UserPlus, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { UserPlus, AlertTriangle, Plus } from "lucide-react";
 import { useAuthStore } from "@/store/auth.store";
 import { useTeam, useAddMember, useRemoveMember } from "@/hooks/useTeams";
 import { useUsers } from "@/hooks/useUsers";
@@ -10,6 +11,7 @@ import { TeamMemberList } from "@/components/organisms/TeamMemberList";
 import { Button } from "@/components/atoms/Button";
 import { Spinner } from "@/components/atoms/Spinner";
 import { EmptyState } from "@/components/molecules/EmptyState";
+import { ROUTES } from "@/constants/routes";
 import type { TeamRole } from "@/types/team.types";
 
 export default function TeamDetailPage() {
@@ -26,6 +28,9 @@ export default function TeamDetailPage() {
   const removeMember = useRemoveMember();
 
   const hasLeader = data?.team.members.some((m) => m.role === "leader") ?? true;
+  const currentUserMember = data?.team.members.find((m) => m.userId === user?.id);
+  const isLeader = currentUserMember?.role === "leader";
+  const canCreateProject = isAdmin || isLeader;
 
   const existingMemberUserIds = new Set(data?.team.members.map((m) => m.userId) ?? []);
   const availableUsers = (allUsers ?? []).filter(
@@ -71,12 +76,22 @@ export default function TeamDetailPage() {
           <h1 className="text-2xl font-bold text-foreground">{team.name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">/{team.slug}</p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => setAddMemberOpen(true)}>
-            <UserPlus className="h-4 w-4" />
-            Add Member
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {canCreateProject && (
+            <Link href={ROUTES.TEAM_NEW_PROJECT(id)}>
+              <Button variant="outline">
+                <Plus className="h-4 w-4" />
+                New Project
+              </Button>
+            </Link>
+          )}
+          {isAdmin && (
+            <Button onClick={() => setAddMemberOpen(true)}>
+              <UserPlus className="h-4 w-4" />
+              Add Member
+            </Button>
+          )}
+        </div>
       </div>
 
       {!hasLeader && (
