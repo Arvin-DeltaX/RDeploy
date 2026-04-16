@@ -42,7 +42,6 @@ function toPublicUser(user: {
   };
 }
 
-const DEFAULT_PASSWORD = "changeme123";
 
 export async function createUser(
   creatorRole: PlatformRole,
@@ -59,7 +58,12 @@ export async function createUser(
     throw new Error("A user with that email already exists");
   }
 
-  const hashedPassword = await bcrypt.hash(DEFAULT_PASSWORD, 12);
+  const defaultPassword = process.env.DEFAULT_USER_PASSWORD;
+  if (!defaultPassword) {
+    throw new Error("DEFAULT_USER_PASSWORD env var is not set");
+  }
+
+  const hashedPassword = await bcrypt.hash(defaultPassword, 12);
 
   const user = await prisma.user.create({
     data: {
@@ -95,6 +99,10 @@ export async function updateUserRole(
     throw new Error("User not found");
   }
 
+  if (actorRole === "admin" && user.platformRole === "owner") {
+    throw new Error("Admins cannot modify owner accounts");
+  }
+
   const updated = await prisma.user.update({
     where: { id: targetUserId },
     data: { platformRole },
@@ -103,10 +111,14 @@ export async function updateUserRole(
   return toPublicUser(updated);
 }
 
-export async function deleteUser(userId: string): Promise<void> {
+export async function deleteUser(actorRole: PlatformRole, userId: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     throw new Error("User not found");
+  }
+
+  if (actorRole === "admin" && user.platformRole === "owner") {
+    throw new Error("Admins cannot delete owner accounts");
   }
 
   await prisma.user.delete({ where: { id: userId } });

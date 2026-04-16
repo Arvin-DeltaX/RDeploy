@@ -91,7 +91,10 @@ router.delete(
   requirePlatformRole("owner", "admin"),
   async (req: Request, res: Response): Promise<void> => {
     try {
-      await adminService.deleteUser(req.params["id"] as string);
+      await adminService.deleteUser(
+        req.user.platformRole as PlatformRole,
+        req.params["id"] as string
+      );
       res.json({ data: { message: "User deleted successfully" } });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete user";

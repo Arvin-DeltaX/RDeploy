@@ -85,7 +85,11 @@ export async function listTeams(
   return memberships.map((m: { team: TeamSummary }) => m.team);
 }
 
-export async function getTeam(teamId: string): Promise<TeamDetail> {
+export async function getTeam(
+  teamId: string,
+  requesterId: string,
+  requesterRole: PlatformRole
+): Promise<TeamDetail> {
   const team = await prisma.team.findUnique({
     where: { id: teamId },
     include: {
@@ -100,6 +104,13 @@ export async function getTeam(teamId: string): Promise<TeamDetail> {
 
   if (!team) {
     throw new Error("Team not found");
+  }
+
+  if (requesterRole !== "owner" && requesterRole !== "admin") {
+    const isMember = team.members.some((m: TeamMemberInfo) => m.userId === requesterId);
+    if (!isMember) {
+      throw new Error("Team not found");
+    }
   }
 
   return team;

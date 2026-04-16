@@ -61,7 +61,11 @@ router.get(
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
     try {
-      const team = await teamsService.getTeam(req.params["id"] as string);
+      const team = await teamsService.getTeam(
+        req.params["id"] as string,
+        req.user.id,
+        req.user.platformRole as PlatformRole
+      );
       res.json({ data: { team } });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get team";
