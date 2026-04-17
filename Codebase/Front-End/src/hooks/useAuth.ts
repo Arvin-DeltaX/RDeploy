@@ -4,6 +4,9 @@ import { toast } from "sonner";
 import {
   login as loginService,
   changePassword as changePasswordService,
+  getGitHubAuthUrl,
+  disconnectGitHub as disconnectGitHubService,
+  getMe,
 } from "@/services/auth.service";
 import { useAuthStore } from "@/store/auth.store";
 import { ROUTES } from "@/constants/routes";
@@ -56,6 +59,55 @@ export function useLogout() {
     logout();
     router.push(ROUTES.LOGIN);
   };
+}
+
+export function useConnectGitHub() {
+  return useMutation({
+    mutationFn: () => getGitHubAuthUrl(),
+    onSuccess: (url) => {
+      // Redirect the browser to the GitHub OAuth authorization page
+      window.location.href = url;
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as AxiosErrorLike;
+      toast.error(axiosError.response?.data?.error ?? "Failed to start GitHub connection");
+    },
+  });
+}
+
+export function useRefreshUser() {
+  const { token, setAuth } = useAuthStore();
+
+  return useMutation({
+    mutationFn: () => getMe(),
+    onSuccess: (freshUser) => {
+      if (token) setAuth(token, freshUser);
+    },
+  });
+}
+
+export function useDisconnectGitHub() {
+  const { user, token, setAuth } = useAuthStore();
+
+  return useMutation({
+    mutationFn: () => disconnectGitHubService(),
+    onSuccess: () => {
+      if (user && token) {
+        setAuth(token, {
+          ...user,
+          githubId: null,
+          githubUsername: null,
+        });
+      }
+      toast.success("GitHub account disconnected");
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as AxiosErrorLike;
+      toast.error(
+        axiosError.response?.data?.error ?? "Failed to disconnect GitHub"
+      );
+    },
+  });
 }
 
 export function useChangePassword() {

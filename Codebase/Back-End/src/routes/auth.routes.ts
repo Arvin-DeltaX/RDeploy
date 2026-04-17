@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
 import * as authService from "../services/auth.service";
+import * as githubService from "../services/github.service";
 
 const router = Router();
 
@@ -69,6 +70,89 @@ router.post(
       const message =
         err instanceof Error ? err.message : "Failed to change password";
       res.status(400).json({ error: message });
+    }
+  }
+);
+
+// GET /api/auth/github — return GitHub OAuth URL as JSON
+// Frontend calls this via axios (JWT in Authorization header), then redirects browser to the returned URL.
+// This avoids exposing the JWT as a browser URL query parameter.
+router.get(
+  "/github",
+  requireAuth,
+  (req: Request, res: Response): void => {
+    try {
+      const clientId = process.env.GITHUB_CLIENT_ID;
+      const callbackUrl = process.env.GITHUB_CALLBACK_URL;
+
+      if (!clientId || !callbackUrl) {
+        res.status(500).json({ error: "GitHub OAuth is not configured" });
+        return;
+      }
+
+      const state = githubService.generateOAuthStateToken(req.user.id);
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: callbackUrl,
+        scope: "repo",
+        state,
+      });
+
+      const url = `https://github.com/login/oauth/authorize?${params.toString()}`;
+      res.json({ data: { url } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to start GitHub OAuth";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+// GET /api/auth/github/callback — complete GitHub OAuth link
+router.get(
+  "/github/callback",
+  async (req: Request, res: Response): Promise<void> => {
+    const platformUrl = process.env.RDEPLOY_PLATFORM_URL ?? "https://rdeploy.deltaxs.co";
+    const { code, state } = req.query;
+
+    if (typeof state !== "string" || typeof code !== "string") {
+      res.redirect(`${platformUrl}/profile?error=github_state_invalid`);
+      return;
+    }
+
+    let userId: string;
+    try {
+      userId = githubService.verifyOAuthStateToken(state);
+    } catch {
+      res.redirect(`${platformUrl}/profile?error=github_state_invalid`);
+      return;
+    }
+
+    try {
+      const accessToken = await githubService.exchangeCodeForToken(code);
+      await githubService.linkGitHubAccount(userId, accessToken);
+      res.redirect(`${platformUrl}/profile?github=connected`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "unknown";
+      if (message === "github_already_linked") {
+        res.redirect(`${platformUrl}/profile?error=github_already_linked`);
+      } else {
+        res.redirect(`${platformUrl}/profile?error=github_connect_failed`);
+      }
+    }
+  }
+);
+
+// DELETE /api/auth/github — disconnect GitHub account
+router.delete(
+  "/github",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      await githubService.disconnectGitHub(req.user.id);
+      res.json({ data: { message: "GitHub account disconnected" } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to disconnect GitHub";
+      res.status(500).json({ error: message });
     }
   }
 );

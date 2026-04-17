@@ -16,6 +16,15 @@ export async function getMe(): Promise<User> {
   return res.data.data.user;
 }
 
+export async function getGitHubAuthUrl(): Promise<string> {
+  const res = await api.get<{ data: { url: string } }>("/api/auth/github");
+  return res.data.data.url;
+}
+
+export async function disconnectGitHub(): Promise<void> {
+  await api.delete("/api/auth/github");
+}
+
 export async function changePassword(
   currentPassword: string,
   newPassword: string

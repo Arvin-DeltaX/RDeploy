@@ -2,6 +2,7 @@ import path from "path";
 import fs from "fs";
 import { spawnSync } from "child_process";
 import prisma from "../lib/prisma";
+import { getDecryptedGitHubToken } from "./github.service";
 
 type PlatformRole = "owner" | "admin" | "user";
 
@@ -110,15 +111,43 @@ export async function cloneRepo(
       throw new Error('Invalid repository URL');
     }
 
+    // Build clone URL — inject GitHub token if user has one connected
+    let cloneUrl = project.repoUrl;
+    const githubToken = await getDecryptedGitHubToken(requesterId);
+
+    if (githubToken && parsedUrl.hostname === "github.com") {
+      // Extract org/repo path (strip leading slash)
+      const repoPath = parsedUrl.pathname.replace(/^\//, "").replace(/\.git$/, "");
+      cloneUrl = `https://${githubToken}@github.com/${repoPath}.git`;
+    }
+
     // Clone the repo using spawnSync (NOT execSync — security rule)
     const cloneResult = spawnSync(
       "git",
-      ["clone", project.repoUrl, workspacePath],
+      ["clone", cloneUrl, workspacePath],
       { encoding: "utf-8", timeout: 120_000 }
     );
 
     if (cloneResult.status !== 0) {
-      const errMsg = cloneResult.stderr ?? "git clone failed";
+      const rawErr = cloneResult.stderr ?? "git clone failed";
+
+      // Scrub any GitHub token from the error message before it escapes
+      const errMsg = githubToken ? rawErr.replace(githubToken, "***") : rawErr;
+
+      // Provide a helpful error when cloning fails and the user has no GitHub token
+      if (!githubToken) {
+        const lowerErr = errMsg.toLowerCase();
+        if (
+          lowerErr.includes("authentication failed") ||
+          lowerErr.includes("could not read username") ||
+          lowerErr.includes("repository not found")
+        ) {
+          throw new Error(
+            "This repository may be private. Connect your GitHub account on the profile page to clone private repos."
+          );
+        }
+      }
+
       throw new Error(errMsg.trim());
     }
 
