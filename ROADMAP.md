@@ -217,4 +217,4 @@
 
 ### Platform
 - [x] Coolify integration as alternative deployment target
-- [ ] `rdeploy.yml` auto-parsing — when leader submits a monorepo, suggest services from `rdeploy.yml` instead of manual entry
+- [x] `rdeploy.yml` auto-parsing — when leader submits a monorepo, suggest services from `rdeploy.yml` instead of manual entry

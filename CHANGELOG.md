@@ -197,6 +197,7 @@ All notable changes are documented here, organized by phase.
 
 ### Platform
 - Coolify integration: PlatformConfig model for encrypted Coolify URL/token; coolify.service.ts with create/deploy/stop/status via Coolify API; deployTarget field on Project ("docker" | "coolify"); PUT /api/projects/:id/deploy-target endpoint; GET/PUT /api/admin/coolify endpoints; DeployTarget organism on project detail; Coolify config section on admin page
+- rdeploy.yml auto-parsing: clone response includes parsed service list when rdeploy.yml found; GET /api/projects/:id/rdeploy-yml endpoint; MonorepoSuggestions organism shows service list with pre-filled "Create Project" links after connecting a monorepo; new project form reads name/repoUrl/dockerfilePath from URL params
 
 ### Reliability
 - Auto-redeploy on crash — background poller now detects non-zero container exits; restarts container once (restartCount 0→1); marks project failed if it crashes again or restart fails; clean exit (code 0) sets status to stopped
