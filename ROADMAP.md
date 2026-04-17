@@ -206,7 +206,7 @@
 ### Reliability
 - [x] Auto-redeploy on crash — detect container exit (non-zero) in poller, auto-restart once, mark failed if second crash
 - [x] Deploy history + rollback to previous build
-- [ ] Redeploy on git push (webhook trigger)
+- [x] Redeploy on git push (webhook trigger)
 
 ### Operations
 - [ ] Resource limits per container (CPU/memory flags on `docker run`)
