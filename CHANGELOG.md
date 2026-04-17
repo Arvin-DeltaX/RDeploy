@@ -194,3 +194,6 @@ All notable changes are documented here, organized by phase.
 
 ## [Bonus] - Post-MVP Features
 > Status: 🟡 In Progress
+
+### Reliability
+- Auto-redeploy on crash — background poller now detects non-zero container exits; restarts container once (restartCount 0→1); marks project failed if it crashes again or restart fails; clean exit (code 0) sets status to stopped

@@ -204,7 +204,7 @@
 ## Bonus (Post-MVP)
 
 ### Reliability
-- [ ] Auto-redeploy on crash — detect container exit (non-zero) in poller, auto-restart once, mark failed if second crash
+- [x] Auto-redeploy on crash — detect container exit (non-zero) in poller, auto-restart once, mark failed if second crash
 - [ ] Deploy history + rollback to previous build
 - [ ] Redeploy on git push (webhook trigger)
 
