@@ -95,14 +95,14 @@
 - [x] PUT /api/projects/:id/env (save encrypted env values)
 
 ### Frontend
-- [ ] "Connect Repo" button on project detail page
-- [ ] Status feedback during cloning
-- [ ] Clear error message if Dockerfile or .env.example is missing
-- [ ] Env vars form (dynamically generated from parsed keys)
-- [ ] Secret toggle per variable (marks value as isSecret — shown as •••••• after save)
-- [ ] All values editable inline regardless of isSecret flag
-- [ ] Save env vars button
-- [ ] Upload .env file button — parses file and bulk-fills matching keys
+- [x] "Connect Repo" button on project detail page
+- [x] Status feedback during cloning
+- [x] Clear error message if Dockerfile or .env.example is missing
+- [x] Env vars form (dynamically generated from parsed keys)
+- [x] Secret toggle per variable (marks value as isSecret — shown as •••••• after save)
+- [x] All values editable inline regardless of isSecret flag
+- [x] Save env vars button
+- [x] Upload .env file button — parses file and bulk-fills matching keys
 
 ---
 

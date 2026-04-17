@@ -87,12 +87,22 @@ All notable changes are documented here, organized by phase.
 ---
 
 ## [Phase 4] - Repo Connection & Env Vars
-> Status: 🟡 In Progress
+> Status: ✅ Complete
 
-### Added
+### Backend
 - Added POST /api/projects/:id/clone — clones GitHub repo to workspace, validates Dockerfile and .env.example, parses env keys, saves to DB, handles status transitions
 - Added GET /api/projects/:id/env — returns all env var keys with indicators for which have values set
 - Added PUT /api/projects/:id/env — saves encrypted env var values to database
+
+### Frontend
+- Added "Connect Repo" button on project detail page — initiates clone operation with async handling
+- Added status feedback during cloning — spinner + "Connecting repository..." text displayed during operation
+- Added error banner for missing Dockerfile or .env.example — displays clear validation error messages from backend
+- Added env vars form with dynamic generation from parsed .env.example keys
+- Added secret toggle per variable — marks value as isSecret and displays as •••••• after save
+- Added inline editing for all env var values — editable regardless of isSecret flag
+- Added save env vars button — commits all env values to database via PUT /api/projects/:id/env
+- Added upload .env file button — parses uploaded file and bulk-fills matching env var keys
 
 ---
 
