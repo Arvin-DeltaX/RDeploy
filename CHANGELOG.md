@@ -148,10 +148,20 @@ All notable changes are documented here, organized by phase.
 ---
 
 ## [Phase 6] - GitHub Connect
-> Status: 🔲 Not Started
+> Status: ✅ Complete
 
-### Added
-- (tasks will be logged here as they complete)
+### Backend
+- Added GET /api/auth/github — starts GitHub OAuth flow using stateless JWT-signed state token; redirects to GitHub
+- Added GET /api/auth/github/callback — exchanges OAuth code for access token, fetches GitHub user, encrypts and links account to user; redirects to profile with status param
+- Added DELETE /api/auth/github — disconnects GitHub by nulling githubId/githubUsername/githubAccessToken
+- Added src/services/github.service.ts — all GitHub OAuth logic (state tokens, token exchange, user fetch, link/disconnect)
+- Modified src/services/git.service.ts — injects GitHub token into clone URL for private repo access; throws descriptive error if clone fails and no token is connected
+- Modified src/middleware/requireAuth.ts — accepts ?token= query param fallback for browser-initiated OAuth redirects
+
+### Frontend
+- Updated src/app/(dashboard)/profile/page.tsx — full GitHub Connect/Disconnect UI: shows Connect button when not linked, shows @username + Connected badge + Disconnect button when linked, handles ?github=connected and ?error= OAuth callback params
+- Updated src/services/auth.service.ts — added disconnectGitHub() service function
+- Updated src/hooks/useAuth.ts — added useConnectGitHub() and useDisconnectGitHub() hooks
 
 ---
 

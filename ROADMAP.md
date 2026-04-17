@@ -173,16 +173,16 @@
 ## Phase 6 — GitHub Connect
 
 ### Backend
-- [ ] GET /api/auth/github (start OAuth flow)
-- [ ] GET /api/auth/github/callback (link GitHub account to user)
-- [ ] DELETE /api/auth/github (disconnect)
-- [ ] Use user's GitHub token when cloning private repos
-- [ ] Show clear error if private repo is submitted without GitHub connected
+- [x] GET /api/auth/github (start OAuth flow)
+- [x] GET /api/auth/github/callback (link GitHub account to user)
+- [x] DELETE /api/auth/github (disconnect)
+- [x] Use user's GitHub token when cloning private repos
+- [x] Show clear error if private repo is submitted without GitHub connected
 
 ### Frontend
-- [ ] "Connect GitHub" button on /profile (if not connected)
-- [ ] "Disconnect GitHub" option (if connected)
-- [ ] Display GitHub username + avatar when connected
+- [x] "Connect GitHub" button on /profile (if not connected)
+- [x] "Disconnect GitHub" option (if connected)
+- [x] Display GitHub username + avatar when connected
 
 ---
 
