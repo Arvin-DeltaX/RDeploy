@@ -188,16 +188,16 @@
 
 ## Phase 7 — Polish & Production Ready
 
-- [ ] Dockerfiles for frontend and backend
-- [ ] docker-compose.yml finalized and tested
-- [ ] .env.example complete and documented
-- [ ] README.md with full setup + run instructions
-- [ ] VPS setup guide (DNS wildcard, Docker install, first run)
-- [ ] Error handling on all API endpoints (validation, 4xx/5xx responses)
-- [ ] Loading states and error states on all frontend pages
-- [ ] Form validation (client + server side)
-- [ ] Responsive UI
-- [ ] Empty states (no teams, no projects, etc.)
+- [x] Dockerfiles for frontend and backend
+- [x] docker-compose.yml finalized and tested
+- [x] .env.example complete and documented
+- [x] README.md with full setup + run instructions
+- [x] VPS setup guide (DNS wildcard, Docker install, first run)
+- [x] Error handling on all API endpoints (validation, 4xx/5xx responses)
+- [x] Loading states and error states on all frontend pages
+- [x] Form validation (client + server side)
+- [x] Responsive UI
+- [x] Empty states (no teams, no projects, etc.)
 
 ---
 
