@@ -195,6 +195,9 @@ All notable changes are documented here, organized by phase.
 ## [Bonus] - Post-MVP Features
 > Status: 🟡 In Progress
 
+### Platform
+- Coolify integration: PlatformConfig model for encrypted Coolify URL/token; coolify.service.ts with create/deploy/stop/status via Coolify API; deployTarget field on Project ("docker" | "coolify"); PUT /api/projects/:id/deploy-target endpoint; GET/PUT /api/admin/coolify endpoints; DeployTarget organism on project detail; Coolify config section on admin page
+
 ### Reliability
 - Auto-redeploy on crash — background poller now detects non-zero container exits; restarts container once (restartCount 0→1); marks project failed if it crashes again or restart fails; clean exit (code 0) sets status to stopped
 - Deploy history + rollback — added DeploymentHistory model (max 5 per project, auto-pruned); deploy flow now tags images with sequential deploy numbers; GET /api/projects/:id/deploys endpoint; POST /api/projects/:id/rollback/:deployId endpoint; DeployHistory organism on project detail page with confirm dialog

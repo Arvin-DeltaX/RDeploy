@@ -216,5 +216,5 @@
 - [x] Project transfer between teams
 
 ### Platform
-- [ ] Coolify integration as alternative deployment target
+- [x] Coolify integration as alternative deployment target
 - [ ] `rdeploy.yml` auto-parsing — when leader submits a monorepo, suggest services from `rdeploy.yml` instead of manual entry
