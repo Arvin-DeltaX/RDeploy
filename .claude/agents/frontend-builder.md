@@ -43,3 +43,4 @@ page → hook → service → lib/api.ts → backend
 - Never use `any` in TypeScript
 - Use `constants/routes.ts` for all route paths — no hardcoded strings
 - Use `constants/status.ts` for project status colors and labels
+- If the task is **style-only** (no logic, no props, no new components) — defer to `/restyle` instead. It enforces atomic layer rules and ripple-checks all dependents automatically.

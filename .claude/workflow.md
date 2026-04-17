@@ -83,8 +83,10 @@ If you completed work outside those commands, run `/update-docs` manually:
 | `/next` | haiku | Find next uncompleted task, describe it, ask for confirmation before starting |
 | `/build-phase` | opus | **Run an entire phase end-to-end** — branch, build all tasks, docs, review, merge |
 | `/architect` | opus | Design decisions, system planning, complex logic |
+| `/check` | opus | **Check if a feature exists** → guide to it, OR add to roadmap + spec if missing |
 | `/build-feature` | sonnet | Implementing a single feature, endpoint, or component |
 | `/fix` | sonnet | Bug fixes, debugging, error handling |
+| `/restyle` | sonnet | Change component styles — respects atomic layers, ripple-checks dependents |
 | `/review` | sonnet | Code review, convention checks |
 | `/update-docs` | haiku | Mark tasks done, update ROADMAP + CHANGELOG |
 | `/phase-start` | haiku | Create phase branch, set status to In Progress |
@@ -116,8 +118,14 @@ Commit + push in one shot?         → /ship (chains /commit then /push, optiona
 Build an entire phase hands-free?  → /build-phase {number} (you trigger)
   └── branch → all tasks in order → docs → review → security → merge
 Designing something new?           → /architect (you trigger)
+Is this feature already built?     → /check {feature description} (you trigger)
+  └── found: shows you exactly where it is
+  └── in spec but not built: offers to run /build-feature
+  └── not in spec: runs /architect → updates KNOWLEDGE_BASE.md + ROADMAP.md
 Building a single task?            → /build-feature (you trigger)
   └── spawns backend-builder, frontend-builder, db-designer, or docker-engineer as needed
+Changing how a component looks?    → /restyle {component + what to change} (you trigger)
+  └── reads component first, checks atomic layer rules, ripple-checks all dependents
 Something is broken?               → /fix (you trigger) or debugger (auto)
 Want a code check?                 → /review (you trigger)
 Task done, need docs updated?      → docs-updater (auto after each task)

@@ -18,7 +18,8 @@
 - Auto-generate Dockerfile or `.env.example` — reject with clear error instead
 - Store secrets in source code or `.env.example`
 - Skip error handling on API endpoints
-- Add features not in `KNOWLEDGE_BASE.md` without discussion
+- Add features not in `KNOWLEDGE_BASE.md` without discussion — run `/check` first
 - Over-engineer — build exactly what the task requires, nothing more
 - Commit directly to `main`
 - Mark a task `[x]` in ROADMAP without adding an entry to CHANGELOG
+- Apply Tailwind or shadcn style changes directly to component files without going through `/restyle` — it enforces atomic layer rules and ripple-checks dependents

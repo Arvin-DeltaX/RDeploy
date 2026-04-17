@@ -86,8 +86,10 @@ When working with Claude Code, steps 4–6 are handled automatically by the agen
 
 | Command | Use For |
 |---------|---------|
+| `/check` | Check if a feature exists → find it, or add to roadmap + spec if missing |
 | `/build-feature` | Build a feature — auto-updates docs after |
 | `/fix` | Fix a bug — auto-updates docs after |
+| `/restyle` | Change component styles — respects atomic layers, ripple-checks dependents |
 | `/architect` | Design decisions before building |
 | `/review` | Code review |
 | `/phase-start` | Create phase branch + mark In Progress |
@@ -128,7 +130,8 @@ When working with Claude Code, steps 4–6 are handled automatically by the agen
 | `CHANGELOG.md` | After every completed task — add entry to phase section |
 | `KNOWLEDGE_BASE.md` | Only when a design decision changes |
 | `CLAUDE.md` | Only when architecture or conventions change |
-| `Documents/WORKFLOW.md` | Only when the workflow itself changes |
+| `.claude/workflow.md` | When slash commands or agents are added/changed — keep in sync with Documents/WORKFLOW.md |
+| `Documents/WORKFLOW.md` | When the workflow itself changes — keep in sync with .claude/workflow.md |
 
 ---
 
