@@ -107,7 +107,7 @@ All notable changes are documented here, organized by phase.
 ---
 
 ## [Phase 5] - Deployment
-> Status: 🔲 Not Started
+> Status: 🟡 In Progress
 
 ### Added
 - (tasks will be logged here as they complete)
