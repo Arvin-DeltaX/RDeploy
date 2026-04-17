@@ -107,7 +107,7 @@ All notable changes are documented here, organized by phase.
 ---
 
 ## [Phase 5] - Deployment
-> Status: 🟡 In Progress
+> Status: ✅ Complete
 
 ### Backend
 - Added POST /api/projects/:id/deploy — full Docker build + run flow with 409 guard for active status, missing env var validation, localhost warning confirmation, port auto-assignment, .env write + immediate delete, deploy logs capped at 50KB, 15s background health check
@@ -131,6 +131,14 @@ All notable changes are documented here, organized by phase.
 - Created Codebase/Front-End/Dockerfile — 3-stage Node 20 Alpine standalone build
 - Added output: "standalone" to next.config.ts for frontend Docker build
 - Updated .env.example with POSTGRES_PASSWORD, RDEPLOY_PLATFORM_SUBDOMAIN, ACME_EMAIL
+
+### Frontend
+- Created DeployButton organism — shows Deploy/Stop/Redeploy buttons based on project status and user permissions; handles localhost warning confirmation dialog; shows missing env var error list blocking deploy
+- Created ContainerStatusBar organism — polls GET /api/projects/:id/container-status every 30s when running; displays uptime, restart count (amber if > 0), exit code, port, and health badge
+- Created LogsViewer organism — two tabs (Deploy Logs / App Logs) using Radix UI Tabs; streams live SSE via fetch + ReadableStream with Authorization header during active builds; auto-scrolls with "Live" badge; falls back to static deploy logs when not building
+- Updated projects detail page (/projects/[id]) — wired deploy/redeploy/stop mutations, localhost warning state, missing keys state, ContainerStatusBar, LogsViewer; live URL uses configurable RDEPLOY_DOMAIN
+- Updated useProjects.ts — added useDeployProject, useRedeployProject, useStopProject, useDeployLogs, useContainerStatus (30s polling), useUploadEnvFile; useProject now polls at 2s during building/cloning
+- Updated projects.service.ts — added deployProject, redeployProject, stopProject, getDeployLogs, getContainerStatus, uploadEnvFile
 
 ---
 

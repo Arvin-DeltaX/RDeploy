@@ -153,20 +153,20 @@
 - [x] URL pattern: {project-slug}-{team-slug}.deltaxs.co
 
 ### Frontend
-- [ ] "Deploy" button (with confirm dialog) — leader/admin/owner only
-  - [ ] If backend returns localhost warning → show confirmation dialog before proceeding
-  - [ ] If backend returns missing env vars error → show list of empty keys, block deploy
-- [ ] "Stop" button — leader/admin/owner only
-- [ ] Status badge (pending / cloning / ready / building / running / failed / stopped)
-- [ ] Health badge (● Healthy / ● Unhealthy / ● Unknown) — shown only when status is "running"
-- [ ] ContainerStatusBar organism — shows uptime, restart count (warning color if > 0), exit code
-  - [ ] Polls GET /api/projects/:id/container-status every 30s when status is "running"
-- [ ] Live URL link when status is running
-- [ ] LogsViewer with two tabs: Deploy Logs and App Logs
-  - [ ] Deploy Logs tab: SSE stream during active deploy/clone; falls back to GET /api/projects/:id/logs (persisted) otherwise
-  - [ ] App Logs tab: SSE stream from running container (?type=app); only active when status is "running"
-  - [ ] "Live" indicator badge on active SSE streams
-- [ ] Redeploy button (calls POST /redeploy — single atomic action)
+- [x] "Deploy" button (with confirm dialog) — leader/admin/owner only
+  - [x] If backend returns localhost warning → show confirmation dialog before proceeding
+  - [x] If backend returns missing env vars error → show list of empty keys, block deploy
+- [x] "Stop" button — leader/admin/owner only
+- [x] Status badge (pending / cloning / ready / building / running / failed / stopped)
+- [x] Health badge (● Healthy / ● Unhealthy / ● Unknown) — shown only when status is "running"
+- [x] ContainerStatusBar organism — shows uptime, restart count (warning color if > 0), exit code
+  - [x] Polls GET /api/projects/:id/container-status every 30s when status is "running"
+- [x] Live URL link when status is running
+- [x] LogsViewer with two tabs: Deploy Logs and App Logs
+  - [x] Deploy Logs tab: SSE stream during active deploy/clone; falls back to GET /api/projects/:id/logs (persisted) otherwise
+  - [x] App Logs tab: SSE stream from running container (?type=app); only active when status is "running"
+  - [x] "Live" indicator badge on active SSE streams
+- [x] Redeploy button (calls POST /redeploy — single atomic action)
 
 ---
 
