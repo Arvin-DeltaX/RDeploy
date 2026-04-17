@@ -202,3 +202,4 @@ All notable changes are documented here, organized by phase.
 
 ### Operations
 - Resource limits per container — added cpuLimit and memoryLimit fields on Project model; PUT /api/projects/:id/resource-limits endpoint; --cpus and --memory flags injected into docker run on deploy and rollback; ResourceLimits organism on project detail page (editable by leader/elder/admin/owner)
+- Multiple replicas per project — added replicaCount (1–5) and ProjectReplica model; deploy flow runs N containers sharing the same Traefik router for load-balancing; health poller checks each replica individually; ReplicaManager organism on project detail page; PUT /api/projects/:id/replicas endpoint
