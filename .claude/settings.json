@@ -1,4 +1,17 @@
 {
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "STATUS=$(git status --porcelain 2>/dev/null); if [ -n \"$STATUS\" ]; then COUNT=$(echo \"$STATUS\" | wc -l | tr -d ' '); echo \"{\\\"systemMessage\\\": \\\"⚠️  WARNING: $COUNT uncommitted/untracked file(s) — run /ship before closing!\\\"}\"; else echo \"{\\\"systemMessage\\\": \\\"✅ Git is clean. Nothing left to commit.\\\"}\"; fi",
+            "statusMessage": "Checking for uncommitted changes..."
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Bash(npm:*)",

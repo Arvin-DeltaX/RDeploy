@@ -5,7 +5,9 @@
       "Bash(wc -l /c/Users/GreatCEO/Desktop/Dev/Projects/RDeploy/.claude/agents/*.md)",
       "Bash(wc -l /c/Users/GreatCEO/Desktop/Dev/Projects/RDeploy/.claude/commands/*.md)",
       "Bash(./node_modules/.bin/tsc --noEmit)",
-      "Bash(node_modules/.bin/tsc --noEmit)"
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
     ]
   }
 }
