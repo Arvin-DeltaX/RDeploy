@@ -20,7 +20,7 @@ export default function TeamDetailPage() {
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
 
-  const { data, isLoading } = useTeam(id);
+  const { data, isLoading, isError } = useTeam(id);
   const isAdmin =
     user?.platformRole === "owner" || user?.platformRole === "admin";
   const { data: allUsers } = useUsers(isAdmin);
@@ -57,6 +57,12 @@ export default function TeamDetailPage() {
       <div className="flex justify-center py-12">
         <Spinner />
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <EmptyState title="Failed to load team" description="Something went wrong. Please refresh and try again." />
     );
   }
 

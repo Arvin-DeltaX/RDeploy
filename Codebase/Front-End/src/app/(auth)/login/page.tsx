@@ -7,6 +7,9 @@ import { useAuthStore } from "@/store/auth.store";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { ROUTES } from "@/constants/routes";
+import { FormField } from "@/components/molecules/FormField";
+import { Input } from "@/components/atoms/Input";
+import { Button } from "@/components/atoms/Button";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -43,47 +46,39 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="w-full max-w-sm">
-      <div className="rounded-lg border border-border bg-card p-8 shadow-lg">
+    <div className="w-full max-w-sm px-4 sm:px-0">
+      <div className="rounded-lg border border-border bg-card p-6 sm:p-8 shadow-lg">
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-bold text-foreground">RDeploy</h1>
           <p className="mt-1 text-sm text-muted-foreground">Sign in to your account</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-foreground">Email</label>
-            <input
-              {...register("email")}
+          <FormField label="Email" htmlFor="email" error={errors.email?.message}>
+            <Input
+              id="email"
               type="email"
               placeholder="you@example.com"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              {...register("email")}
             />
-            {errors.email && (
-              <p className="mt-1 text-xs text-destructive">{errors.email.message}</p>
-            )}
-          </div>
+          </FormField>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-foreground">Password</label>
-            <input
-              {...register("password")}
+          <FormField label="Password" htmlFor="password" error={errors.password?.message}>
+            <Input
+              id="password"
               type="password"
               placeholder="••••••••"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              {...register("password")}
             />
-            {errors.password && (
-              <p className="mt-1 text-xs text-destructive">{errors.password.message}</p>
-            )}
-          </div>
+          </FormField>
 
-          <button
+          <Button
             type="submit"
+            className="w-full"
             disabled={loginMutation.isPending}
-            className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {loginMutation.isPending ? "Signing in..." : "Sign in"}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

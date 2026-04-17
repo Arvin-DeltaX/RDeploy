@@ -7,6 +7,9 @@ import { useAuthStore } from "@/store/auth.store";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { ROUTES } from "@/constants/routes";
+import { FormField } from "@/components/molecules/FormField";
+import { Input } from "@/components/atoms/Input";
+import { Button } from "@/components/atoms/Button";
 
 const schema = z
   .object({
@@ -48,8 +51,8 @@ export default function ChangePasswordPage() {
   if (!token) return null;
 
   return (
-    <div className="w-full max-w-sm">
-      <div className="rounded-lg border border-border bg-card p-8 shadow-lg">
+    <div className="w-full max-w-sm px-4 sm:px-0">
+      <div className="rounded-lg border border-border bg-card p-6 sm:p-8 shadow-lg">
         <div className="mb-6">
           <h1 className="text-xl font-bold text-foreground">Change Password</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -58,59 +61,49 @@ export default function ChangePasswordPage() {
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-foreground">
-              Current Password
-            </label>
-            <input
+          <FormField
+            label="Current Password"
+            htmlFor="currentPassword"
+            error={errors.currentPassword?.message}
+          >
+            <Input
+              id="currentPassword"
+              type="password"
               {...register("currentPassword")}
-              type="password"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            {errors.currentPassword && (
-              <p className="mt-1 text-xs text-destructive">
-                {errors.currentPassword.message}
-              </p>
-            )}
-          </div>
+          </FormField>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-foreground">
-              New Password
-            </label>
-            <input
+          <FormField
+            label="New Password"
+            htmlFor="newPassword"
+            error={errors.newPassword?.message}
+          >
+            <Input
+              id="newPassword"
+              type="password"
               {...register("newPassword")}
-              type="password"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            {errors.newPassword && (
-              <p className="mt-1 text-xs text-destructive">{errors.newPassword.message}</p>
-            )}
-          </div>
+          </FormField>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-foreground">
-              Confirm Password
-            </label>
-            <input
+          <FormField
+            label="Confirm Password"
+            htmlFor="confirmPassword"
+            error={errors.confirmPassword?.message}
+          >
+            <Input
+              id="confirmPassword"
+              type="password"
               {...register("confirmPassword")}
-              type="password"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            {errors.confirmPassword && (
-              <p className="mt-1 text-xs text-destructive">
-                {errors.confirmPassword.message}
-              </p>
-            )}
-          </div>
+          </FormField>
 
-          <button
+          <Button
             type="submit"
+            className="w-full"
             disabled={changePasswordMutation.isPending}
-            className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {changePasswordMutation.isPending ? "Changing..." : "Change Password"}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

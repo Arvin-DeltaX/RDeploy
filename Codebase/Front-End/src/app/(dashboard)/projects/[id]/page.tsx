@@ -140,7 +140,7 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-foreground">{project.name}</h1>
@@ -235,8 +235,8 @@ export default function ProjectDetailPage() {
         </h2>
 
         <dl className="space-y-3">
-          <div className="flex items-start gap-2">
-            <dt className="w-36 shrink-0 text-sm text-muted-foreground">Slug</dt>
+          <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:gap-2">
+            <dt className="sm:w-36 shrink-0 text-sm text-muted-foreground">Slug</dt>
             <dd className="text-sm text-foreground font-mono">{project.slug}</dd>
           </div>
           <div className="flex items-start gap-2">

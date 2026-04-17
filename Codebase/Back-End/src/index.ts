@@ -6,6 +6,7 @@ import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
 import teamsRouter from "./routes/teams.routes";
 import projectsRouter from "./routes/projects.routes";
+import { errorHandler } from "./middleware/errorHandler";
 import { inspectContainer } from "./services/docker.service";
 import { healthCheckHttp } from "./services/deploy.service";
 
@@ -48,6 +49,14 @@ app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/teams", teamsRouter);
 app.use("/api", projectsRouter);
+
+// 404 catch-all — must be after all routes
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// Global error handler — must be last, after the 404 handler
+app.use(errorHandler);
 
 function startHealthPoller(): void {
   setInterval(async () => {

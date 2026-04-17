@@ -41,7 +41,7 @@ function AdminContent() {
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
 
-  const { data: users, isLoading } = useUsers();
+  const { data: users, isLoading, isError } = useUsers();
   const createUser = useCreateUser();
   const updateRole = useUpdateUserRole();
   const deleteUser = useDeleteUser();
@@ -65,14 +65,19 @@ function AdminContent() {
         <div className="flex justify-center py-12">
           <Spinner />
         </div>
+      ) : isError ? (
+        <EmptyState
+          title="Failed to load users"
+          description="There was an error loading users. Please refresh the page."
+        />
       ) : !users || users.length === 0 ? (
         <EmptyState
           title="No users found"
           description="Create the first user to get started."
         />
       ) : (
-        <div className="rounded-lg border border-border overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="rounded-lg border border-border overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">User</th>

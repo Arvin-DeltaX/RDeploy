@@ -18,7 +18,7 @@ export default function TeamsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Team | null>(null);
 
-  const { data: teams, isLoading } = useTeams();
+  const { data: teams, isLoading, isError } = useTeams();
   const createTeam = useCreateTeam();
   const deleteTeam = useDeleteTeam();
 
@@ -46,6 +46,11 @@ export default function TeamsPage() {
         <div className="flex justify-center py-12">
           <Spinner />
         </div>
+      ) : isError ? (
+        <EmptyState
+          title="Failed to load teams"
+          description="There was an error loading your teams. Please refresh the page."
+        />
       ) : !teams || teams.length === 0 ? (
         <EmptyState
           title="No teams yet"
