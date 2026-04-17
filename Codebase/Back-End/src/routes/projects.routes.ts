@@ -1,8 +1,11 @@
+import fs from "fs";
+import path from "path";
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import multer from "multer";
 import { requireAuth } from "../middleware/requireAuth";
 import { requireTeamRole } from "../middleware/requireTeamRole";
+import { requirePlatformRole } from "../middleware/requirePlatformRole";
 import {
   createProject,
   listTeamProjects,
@@ -13,20 +16,23 @@ import {
   removeProjectMember,
   listProjectMembers,
 } from "../services/projects.service";
-import { cloneRepo } from "../services/git.service";
+import { cloneRepo, parseRdeployYml } from "../services/git.service";
 import { getEnvVars, updateEnvVars } from "../services/env.service";
 import {
   stopContainer,
   removeContainer,
+  runContainer,
   inspectContainer,
   streamContainerLogs,
 } from "../services/docker.service";
+import { getAvailablePort } from "../utils/ports";
 import {
   runDeployFlow,
   checkLeaderPermission,
   checkMemberAccess,
 } from "../services/deploy.service";
-import { encrypt } from "../utils/encryption";
+import { encrypt, decrypt } from "../utils/encryption";
+import { getCoolifyConfig } from "../services/coolify.service";
 import prisma from "../lib/prisma";
 
 const router = Router();
@@ -56,6 +62,25 @@ const assignMembersSchema = z.object({
 
 const deploySchema = z.object({
   confirmed: z.boolean().optional(),
+});
+
+const resourceLimitsSchema = z.object({
+  cpuLimit: z
+    .string()
+    .nullable()
+    .optional()
+    .refine(
+      (v) => v == null || /^\d+(\.\d+)?$/.test(v) && parseFloat(v) > 0,
+      { message: "cpuLimit must be a positive number string e.g. \"0.5\", \"1\", \"2.0\"" }
+    ),
+  memoryLimit: z
+    .string()
+    .nullable()
+    .optional()
+    .refine(
+      (v) => v == null || /^\d+[mg]$/i.test(v),
+      { message: "memoryLimit must match pattern e.g. \"256m\", \"512m\", \"1g\", \"2g\"" }
+    ),
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -283,7 +308,7 @@ router.post(
         user.id,
         user.platformRole as "owner" | "admin" | "user"
       );
-      res.json({ data: result });
+      res.json({ data: { project: result.project, envKeys: result.envKeys, rdeployYml: result.rdeployYml } });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Internal server error";
       if (message === "Project not found") {
@@ -501,13 +526,33 @@ router.post(
 
       await checkLeaderPermission(user.id, user.platformRole as PlatformRole, project.teamId);
 
-      if (!project.containerId) {
+      // Stop all replica containers
+      const replicas = await prisma.projectReplica.findMany({
+        where: { projectId: id },
+        select: { id: true, containerId: true },
+      });
+
+      for (const replica of replicas) {
+        if (replica.containerId) {
+          stopContainer(replica.containerId);
+          removeContainer(replica.containerId);
+        }
+        await prisma.projectReplica.update({
+          where: { id: replica.id },
+          data: { status: "stopped", containerId: null },
+        });
+      }
+
+      // Also stop the legacy containerId (backward compat / single-replica case)
+      if (project.containerId) {
+        stopContainer(project.containerId);
+        removeContainer(project.containerId);
+      }
+
+      if (!project.containerId && replicas.length === 0) {
         res.status(400).json({ error: "No container running" });
         return;
       }
-
-      stopContainer(project.containerId);
-      removeContainer(project.containerId);
 
       await prisma.project.update({
         where: { id },
@@ -835,6 +880,787 @@ router.get(
         }
       } else {
         res.end();
+      }
+    }
+  }
+);
+
+// ─── GET /api/projects/:id/deploys ───────────────────────────────────────────
+
+router.get(
+  "/projects/:id/deploys",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const user = req.user;
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { id: true, teamId: true },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      await checkMemberAccess(user.id, user.platformRole as PlatformRole, project.teamId);
+
+      const history = await prisma.deploymentHistory.findMany({
+        where: { projectId: id },
+        orderBy: { deployNumber: "desc" },
+        select: {
+          id: true,
+          deployNumber: true,
+          deployedAt: true,
+          isActive: true,
+          imageTag: true,
+          user: { select: { id: true, name: true } },
+        },
+      });
+
+      const data = history.map((h) => ({
+        id: h.id,
+        deployNumber: h.deployNumber,
+        deployedAt: h.deployedAt,
+        isActive: h.isActive,
+        imageTag: h.imageTag,
+        deployedBy: h.user,
+      }));
+
+      res.json({ data });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      if (message === "Forbidden") {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  }
+);
+
+// ─── POST /api/projects/:id/rollback/:deployId ────────────────────────────────
+
+router.post(
+  "/projects/:id/rollback/:deployId",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const deployId = req.params.deployId as string;
+    const user = req.user;
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          teamId: true,
+          slug: true,
+          status: true,
+          containerId: true,
+          cpuLimit: true,
+          memoryLimit: true,
+          customDomain: true,
+          team: { select: { id: true, slug: true } },
+        },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      // Leader-level permission required
+      await checkLeaderPermission(user.id, user.platformRole as PlatformRole, project.teamId);
+
+      // Status guard — cannot rollback while building or cloning
+      if (project.status === "building" || project.status === "cloning") {
+        res.status(409).json({ error: "Deploy already in progress" });
+        return;
+      }
+
+      // Verify deploy record belongs to this project
+      const deployRecord = await prisma.deploymentHistory.findUnique({
+        where: { id: deployId },
+        select: { id: true, projectId: true, imageTag: true, deployNumber: true },
+      });
+
+      if (!deployRecord || deployRecord.projectId !== id) {
+        res.status(404).json({ error: "Deploy record not found" });
+        return;
+      }
+
+      // Stop and remove current container if running
+      if (project.containerId) {
+        stopContainer(project.containerId);
+        removeContainer(project.containerId);
+      }
+
+      // Assign a new port
+      const port = await getAvailablePort();
+
+      const projectSlug = project.slug;
+      const teamSlug = project.team.slug;
+      const containerName = `rdeploy-${projectSlug}-${teamSlug}`;
+      const domain = process.env.RDEPLOY_DOMAIN ?? "deltaxs.co";
+      const network = process.env.DOCKER_NETWORK ?? "rdeploy-net";
+
+      // Write full .env (PORT + all decrypted env vars) so the container starts correctly
+      const workspaceBase = process.env.RDEPLOY_WORKSPACE_DIR ?? ".rdeploy/workspaces";
+      const workspace = path.join(workspaceBase, teamSlug, projectSlug);
+      const envFilePath = path.join(workspace, ".env");
+
+      const rawEnvVars = await prisma.envVar.findMany({
+        where: { projectId: id },
+        select: { key: true, value: true },
+      });
+      const envLines = [`PORT=${port}`];
+      for (const v of rawEnvVars) {
+        const decryptedValue = v.value !== "" ? decrypt(v.value) : "";
+        envLines.push(`${v.key}=${decryptedValue}`);
+      }
+
+      fs.mkdirSync(workspace, { recursive: true });
+      fs.writeFileSync(envFilePath, envLines.join("\n"), { encoding: "utf8" });
+
+      let containerId: string;
+      try {
+        containerId = await runContainer(
+          deployRecord.imageTag,
+          containerName,
+          port,
+          network,
+          projectSlug,
+          teamSlug,
+          domain,
+          envFilePath,
+          undefined,
+          project.cpuLimit,
+          project.memoryLimit,
+          undefined,
+          project.customDomain
+        );
+      } finally {
+        // Always clean up .env
+        try {
+          fs.unlinkSync(envFilePath);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Update project state
+      await prisma.project.update({
+        where: { id },
+        data: {
+          status: "running",
+          containerId,
+          port,
+          healthStatus: "unknown",
+        },
+      });
+
+      // Set this record active, deactivate all others
+      await prisma.deploymentHistory.updateMany({
+        where: { projectId: id },
+        data: { isActive: false },
+      });
+      await prisma.deploymentHistory.update({
+        where: { id: deployId },
+        data: { isActive: true },
+      });
+
+      res.json({
+        data: {
+          message: "Rollback successful",
+          deployNumber: deployRecord.deployNumber,
+          imageTag: deployRecord.imageTag,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      if (message === "Project not found") {
+        res.status(404).json({ error: message });
+      } else if (message === "Forbidden") {
+        res.status(403).json({ error: message });
+      } else if (message === "Deploy record not found") {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  }
+);
+
+// ─── POST /api/projects/:id/webhook/setup ────────────────────────────────────
+
+router.post(
+  "/projects/:id/webhook/setup",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const user = req.user;
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { id: true, teamId: true },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      await checkLeaderPermission(user.id, user.platformRole as PlatformRole, project.teamId);
+
+      const { randomBytes } = await import("crypto");
+      const webhookSecret = randomBytes(32).toString("hex");
+
+      await prisma.project.update({
+        where: { id },
+        data: { webhookSecret },
+      });
+
+      const platformUrl = process.env.RDEPLOY_PLATFORM_URL ?? "https://rdeploy.deltaxs.co";
+      const webhookUrl = `${platformUrl}/api/webhooks/github/${id}`;
+
+      res.json({ data: { webhookSecret, webhookUrl } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      if (message === "Project not found") {
+        res.status(404).json({ error: message });
+      } else if (message === "Forbidden") {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  }
+);
+
+// ─── GET /api/projects/:id/webhook ───────────────────────────────────────────
+
+router.get(
+  "/projects/:id/webhook",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const user = req.user;
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { id: true, teamId: true, webhookSecret: true },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      await checkMemberAccess(user.id, user.platformRole as PlatformRole, project.teamId);
+
+      const platformUrl = process.env.RDEPLOY_PLATFORM_URL ?? "https://rdeploy.deltaxs.co";
+      const webhookUrl = `${platformUrl}/api/webhooks/github/${id}`;
+
+      res.json({ data: { webhookUrl, hasSecret: project.webhookSecret !== null } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      if (message === "Project not found") {
+        res.status(404).json({ error: message });
+      } else if (message === "Forbidden") {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  }
+);
+
+// ─── PUT /api/projects/:id/resource-limits ───────────────────────────────────
+
+router.put(
+  "/projects/:id/resource-limits",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const user = req.user;
+
+    const parsed = resourceLimitsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.errors[0].message });
+      return;
+    }
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { id: true, teamId: true },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      // Permission: leader or elder (same as env vars)
+      if ((user.platformRole as PlatformRole) === "user") {
+        const member = await prisma.teamMember.findUnique({
+          where: { userId_teamId: { userId: user.id, teamId: project.teamId } },
+        });
+        if (!member || (member.role !== "leader" && member.role !== "elder")) {
+          res.status(403).json({ error: "Forbidden" });
+          return;
+        }
+      }
+
+      const { cpuLimit, memoryLimit } = parsed.data;
+
+      const updated = await prisma.project.update({
+        where: { id },
+        data: {
+          ...(cpuLimit !== undefined ? { cpuLimit: cpuLimit ?? null } : {}),
+          ...(memoryLimit !== undefined ? { memoryLimit: memoryLimit ?? null } : {}),
+        },
+        select: { cpuLimit: true, memoryLimit: true },
+      });
+
+      res.json({ data: { cpuLimit: updated.cpuLimit, memoryLimit: updated.memoryLimit } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+// ─── PUT /api/projects/:id/replicas ──────────────────────────────────────────
+
+const replicaCountSchema = z.object({
+  replicaCount: z
+    .number({ invalid_type_error: "replicaCount must be a number" })
+    .int("replicaCount must be an integer")
+    .min(1, "replicaCount must be at least 1")
+    .max(5, "replicaCount must be at most 5"),
+});
+
+router.put(
+  "/projects/:id/replicas",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const user = req.user;
+
+    const parsed = replicaCountSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.errors[0].message });
+      return;
+    }
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { id: true, teamId: true },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      await checkLeaderPermission(user.id, user.platformRole as PlatformRole, project.teamId);
+
+      const updated = await prisma.project.update({
+        where: { id },
+        data: { replicaCount: parsed.data.replicaCount },
+        select: { replicaCount: true },
+      });
+
+      res.json({ data: { replicaCount: updated.replicaCount } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      if (message === "Project not found") {
+        res.status(404).json({ error: message });
+      } else if (message === "Forbidden") {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  }
+);
+
+// ─── PUT /api/projects/:id/custom-domain ─────────────────────────────────────
+
+const customDomainSchema = z.object({
+  customDomain: z
+    .string()
+    .nullable()
+    .refine(
+      (v) => {
+        if (v === null) return true;
+        // Must be a valid hostname: no protocol, no path, no spaces, no trailing slash
+        return /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/.test(v);
+      },
+      { message: "customDomain must be a valid hostname (e.g. api.mycompany.com) with no protocol or trailing slash" }
+    ),
+});
+
+router.put(
+  "/projects/:id/custom-domain",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const user = req.user;
+
+    const parsed = customDomainSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.errors[0].message });
+      return;
+    }
+
+    const { customDomain } = parsed.data;
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          teamId: true,
+          slug: true,
+          status: true,
+          containerId: true,
+          port: true,
+          cpuLimit: true,
+          memoryLimit: true,
+          customDomain: true,
+          team: { select: { id: true, slug: true } },
+        },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      await checkLeaderPermission(user.id, user.platformRole as PlatformRole, project.teamId);
+
+      // Save to DB
+      await prisma.project.update({
+        where: { id },
+        data: { customDomain: customDomain ?? null },
+      });
+
+      // If currently running, restart the container with updated Traefik labels
+      if (project.status === "running" && project.containerId && project.port !== null) {
+        const teamSlug = project.team.slug;
+        const projectSlug = project.slug;
+        const domain = process.env.RDEPLOY_DOMAIN ?? "deltaxs.co";
+        const network = process.env.DOCKER_NETWORK ?? "rdeploy-net";
+        const tag = `rdeploy-${projectSlug}-${teamSlug}`;
+        const containerName = `rdeploy-${projectSlug}-${teamSlug}-0`;
+        const traefikRouterName = `rdeploy-${projectSlug}-${teamSlug}`;
+
+        const workspaceBase = process.env.RDEPLOY_WORKSPACE_DIR ?? ".rdeploy/workspaces";
+        const workspace = path.join(workspaceBase, teamSlug, projectSlug);
+        const envFilePath = path.join(workspace, ".env");
+
+        stopContainer(project.containerId);
+        removeContainer(project.containerId);
+
+        const rawEnvVarsForDomain = await prisma.envVar.findMany({
+          where: { projectId: id },
+          select: { key: true, value: true },
+        });
+        const domainEnvLines = [`PORT=${project.port}`];
+        for (const v of rawEnvVarsForDomain) {
+          const decryptedValue = v.value !== "" ? decrypt(v.value) : "";
+          domainEnvLines.push(`${v.key}=${decryptedValue}`);
+        }
+
+        fs.mkdirSync(workspace, { recursive: true });
+        fs.writeFileSync(envFilePath, domainEnvLines.join("\n"), { encoding: "utf8" });
+
+        let newContainerId: string;
+        try {
+          newContainerId = await runContainer(
+            tag,
+            containerName,
+            project.port,
+            network,
+            projectSlug,
+            teamSlug,
+            domain,
+            envFilePath,
+            undefined,
+            project.cpuLimit,
+            project.memoryLimit,
+            traefikRouterName,
+            customDomain ?? null
+          );
+        } finally {
+          try { fs.unlinkSync(envFilePath); } catch { /* ignore */ }
+        }
+
+        await prisma.project.update({
+          where: { id },
+          data: { containerId: newContainerId },
+        });
+      }
+
+      res.json({ data: { customDomain: customDomain ?? null } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      if (message === "Project not found") {
+        res.status(404).json({ error: message });
+      } else if (message === "Forbidden") {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  }
+);
+
+// ─── POST /api/projects/:id/transfer ─────────────────────────────────────────
+
+const transferProjectSchema = z.object({
+  targetTeamId: z.string().uuid("targetTeamId must be a valid UUID"),
+});
+
+router.post(
+  "/projects/:id/transfer",
+  requireAuth,
+  requirePlatformRole("owner", "admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+
+    const parsed = transferProjectSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.errors[0].message });
+      return;
+    }
+
+    const { targetTeamId } = parsed.data;
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { id: true, name: true, slug: true, teamId: true },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      if (project.teamId === targetTeamId) {
+        res.status(400).json({ error: "Project is already in the target team" });
+        return;
+      }
+
+      const targetTeam = await prisma.team.findUnique({
+        where: { id: targetTeamId },
+        select: { id: true },
+      });
+
+      if (!targetTeam) {
+        res.status(404).json({ error: "Target team not found" });
+        return;
+      }
+
+      // Resolve slug collision in the target team
+      let slug = project.slug;
+      const existingSlugs = await prisma.project.findMany({
+        where: { teamId: targetTeamId },
+        select: { slug: true },
+      });
+      const slugSet = new Set(existingSlugs.map((p) => p.slug));
+
+      if (slugSet.has(slug)) {
+        let counter = 2;
+        while (slugSet.has(`${slug}-${counter}`)) {
+          counter++;
+        }
+        slug = `${slug}-${counter}`;
+      }
+
+      // Remove all project assignments (old-team member access) then update teamId + slug
+      await prisma.$transaction([
+        prisma.projectAssignment.deleteMany({ where: { projectId: id } }),
+        prisma.project.update({
+          where: { id },
+          data: { teamId: targetTeamId, slug },
+        }),
+      ]);
+
+      res.json({ data: { id: project.id, name: project.name, slug, teamId: targetTeamId } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+// ─── PUT /api/projects/:id/deploy-target ─────────────────────────────────────
+
+const deployTargetSchema = z.object({
+  deployTarget: z.enum(["docker", "coolify"], {
+    errorMap: () => ({ message: 'deployTarget must be "docker" or "coolify"' }),
+  }),
+});
+
+router.put(
+  "/projects/:id/deploy-target",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const user = req.user;
+
+    const parsed = deployTargetSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.errors[0].message });
+      return;
+    }
+
+    const { deployTarget } = parsed.data;
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { id: true, teamId: true },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      await checkLeaderPermission(user.id, user.platformRole as PlatformRole, project.teamId);
+
+      if (deployTarget === "coolify") {
+        const coolifyConfig = await getCoolifyConfig();
+        if (!coolifyConfig.coolifyUrl || !coolifyConfig.tokenIsSet) {
+          res.status(400).json({ error: "Coolify not configured" });
+          return;
+        }
+      }
+
+      const updated = await prisma.project.update({
+        where: { id },
+        data: { deployTarget },
+        select: { deployTarget: true },
+      });
+
+      res.json({ data: { deployTarget: updated.deployTarget } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      if (message === "Project not found") {
+        res.status(404).json({ error: message });
+      } else if (message === "Forbidden") {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  }
+);
+
+// ─── GET /api/projects/:id/rdeploy-yml ───────────────────────────────────────
+
+router.get(
+  "/projects/:id/rdeploy-yml",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const user = req.user;
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          teamId: true,
+          slug: true,
+          status: true,
+          team: { select: { slug: true } },
+        },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      await checkMemberAccess(user.id, user.platformRole as PlatformRole, project.teamId);
+
+      if (project.status === "pending") {
+        res.status(400).json({ error: "Repo has not been cloned yet" });
+        return;
+      }
+
+      const workspaceBase = process.env.RDEPLOY_WORKSPACE_DIR ?? ".rdeploy/workspaces";
+      const repoPath = path.join(workspaceBase, project.team.slug, project.slug, "repo");
+
+      let rdeployYml;
+      try {
+        rdeployYml = parseRdeployYml(repoPath);
+      } catch (parseErr) {
+        const message = parseErr instanceof Error ? parseErr.message : "Failed to parse rdeploy.yml";
+        res.status(400).json({ error: `Invalid rdeploy.yml: ${message}` });
+        return;
+      }
+
+      res.json({ data: rdeployYml });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      if (message === "Forbidden") {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  }
+);
+
+// ─── DELETE /api/projects/:id/webhook ────────────────────────────────────────
+
+router.delete(
+  "/projects/:id/webhook",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const user = req.user;
+
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { id: true, teamId: true },
+      });
+
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      await checkLeaderPermission(user.id, user.platformRole as PlatformRole, project.teamId);
+
+      await prisma.project.update({
+        where: { id },
+        data: { webhookSecret: null },
+      });
+
+      res.json({ data: { message: "Webhook disabled" } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      if (message === "Project not found") {
+        res.status(404).json({ error: message });
+      } else if (message === "Forbidden") {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
       }
     }
   }

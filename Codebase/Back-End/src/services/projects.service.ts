@@ -6,6 +6,17 @@ import { slugify } from "../utils/slugify";
 
 type PlatformRole = "owner" | "admin" | "user";
 
+interface ReplicaInfo {
+  id: string;
+  projectId: string;
+  replicaIndex: number;
+  containerId: string | null;
+  port: number | null;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 interface ProjectSummary {
   id: string;
   teamId: string;
@@ -19,9 +30,14 @@ interface ProjectSummary {
   containerId: string | null;
   restartCount: number;
   exitCode: number | null;
+  cpuLimit: string | null;
+  memoryLimit: string | null;
+  replicaCount: number;
+  customDomain: string | null;
   createdAt: Date;
   updatedAt: Date;
   team: { id: string; name: string; slug: string };
+  replicas?: ReplicaInfo[];
 }
 
 interface ProjectAssignmentInfo {
@@ -127,7 +143,10 @@ export async function getProject(
 ): Promise<ProjectSummary> {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    include: { team: { select: { id: true, name: true, slug: true } } },
+    include: {
+      team: { select: { id: true, name: true, slug: true } },
+      replicas: { orderBy: { replicaIndex: "asc" } },
+    },
   });
 
   if (!project) {
@@ -195,7 +214,10 @@ export async function deleteProject(
 ): Promise<void> {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    include: { team: { select: { id: true, name: true, slug: true } } },
+    include: {
+      team: { select: { id: true, name: true, slug: true } },
+      replicas: { select: { containerId: true } },
+    },
   });
 
   if (!project) {
@@ -212,7 +234,14 @@ export async function deleteProject(
     }
   }
 
-  // Stop and remove Docker container if one is running
+  // Stop and remove all replica containers
+  for (const replica of project.replicas) {
+    if (replica.containerId) {
+      stopAndRemoveContainer(replica.containerId);
+    }
+  }
+
+  // Stop and remove legacy containerId (backward compat)
   if (project.containerId) {
     stopAndRemoveContainer(project.containerId);
   }

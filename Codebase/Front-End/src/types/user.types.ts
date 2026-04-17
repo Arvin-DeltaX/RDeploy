@@ -9,6 +9,7 @@ export interface User {
   mustChangePassword: boolean;
   githubId: string | null;
   githubUsername: string | null;
+  emailNotifications: boolean;
   createdAt: string;
   updatedAt: string;
 }

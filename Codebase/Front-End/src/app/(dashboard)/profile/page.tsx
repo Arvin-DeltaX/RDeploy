@@ -3,7 +3,8 @@ import { useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
-import { useConnectGitHub, useDisconnectGitHub, useRefreshUser } from "@/hooks/useAuth";
+import { useConnectGitHub, useDisconnectGitHub, useRefreshUser, useUpdateNotifications } from "@/hooks/useAuth";
+import { Switch } from "@/components/atoms/Switch";
 import { UserAvatar } from "@/components/molecules/UserAvatar";
 import { Badge } from "@/components/atoms/Badge";
 import { Button } from "@/components/atoms/Button";
@@ -25,6 +26,7 @@ export default function ProfilePage() {
   const connectMutation = useConnectGitHub();
   const disconnectMutation = useDisconnectGitHub();
   const refreshUser = useRefreshUser();
+  const updateNotifications = useUpdateNotifications();
 
   // Handle OAuth callback query params
   useEffect(() => {
@@ -148,6 +150,35 @@ export default function ProfilePage() {
               </Button>
             </div>
           )}
+        </div>
+
+        {/* Notifications Section */}
+        <div className="border-t border-border pt-5 space-y-3">
+          <p className="text-muted-foreground text-xs uppercase tracking-wider font-medium">
+            Notifications
+          </p>
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <label
+                htmlFor="email-notifications"
+                className="text-sm font-medium text-foreground cursor-pointer"
+              >
+                Email notifications
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Receive emails on deploy success and failure
+              </p>
+            </div>
+            <Switch
+              id="email-notifications"
+              checked={user.emailNotifications}
+              onCheckedChange={(checked) => updateNotifications.mutate(checked)}
+              disabled={updateNotifications.isPending}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Emails are sent to your account email on deploy success or failure for projects you&apos;re assigned to.
+          </p>
         </div>
 
         <p className="text-xs text-muted-foreground border-t border-border pt-4">

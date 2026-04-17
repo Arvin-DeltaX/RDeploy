@@ -14,6 +14,7 @@ import {
   useDeployProject,
   useStopProject,
   useRedeployProject,
+  useRdeployYml,
 } from "@/hooks/useProjects";
 import { useTeam } from "@/hooks/useTeams";
 import { useAuthStore } from "@/store/auth.store";
@@ -25,10 +26,19 @@ import { EnvVarsForm } from "@/components/organisms/EnvVarsForm";
 import { DeployButton } from "@/components/organisms/DeployButton";
 import { ContainerStatusBar } from "@/components/organisms/ContainerStatusBar";
 import { LogsViewer } from "@/components/organisms/LogsViewer";
+import { DeployHistory } from "@/components/organisms/DeployHistory";
+import { WebhookSetup } from "@/components/organisms/WebhookSetup";
+import { TransferProject } from "@/components/organisms/TransferProject";
+import { MonorepoSuggestions } from "@/components/organisms/MonorepoSuggestions";
+import { CustomDomain } from "@/components/organisms/CustomDomain";
+import { ResourceLimits } from "@/components/organisms/ResourceLimits";
+import { DeployTarget } from "@/components/organisms/DeployTarget";
+import { ReplicaManager } from "@/components/organisms/ReplicaManager";
 import { cn } from "@/lib/utils";
 import { STATUS_LABELS, STATUS_COLORS } from "@/constants/status";
 import { ROUTES } from "@/constants/routes";
 import type { AxiosErrorLike } from "@/types/api.types";
+import type { RdeployYmlResult } from "@/types/project.types";
 
 const RDEPLOY_DOMAIN = process.env.NEXT_PUBLIC_RDEPLOY_DOMAIN ?? "deltaxs.co";
 
@@ -58,10 +68,20 @@ export default function ProjectDetailPage() {
   const [cloneError, setCloneError] = useState<string | null>(null);
   const [localhostKeys, setLocalhostKeys] = useState<string[]>([]);
   const [missingKeys, setMissingKeys] = useState<string[]>([]);
+  const [cloneRdeployYml, setCloneRdeployYml] = useState<RdeployYmlResult | null>(null);
+
+  const isNotPending = !!project && project.status !== "pending";
+  const { data: fetchedRdeployYml } = useRdeployYml(id, isNotPending);
 
   function handleClone() {
     setCloneError(null);
+    setCloneRdeployYml(null);
     cloneMutation.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.rdeployYml?.found && result.rdeployYml.services.length > 1) {
+          setCloneRdeployYml(result.rdeployYml);
+        }
+      },
       onError: (error: unknown) => {
         const err = error as AxiosErrorLike;
         setCloneError(err.response?.data?.error ?? "Failed to connect repository.");
@@ -136,6 +156,12 @@ export default function ProjectDetailPage() {
   const showConnectRepo =
     canClone && (project.status === "pending" || project.status === "failed");
   const showEnvVars = project.status !== "pending";
+
+  const activeRdeployYml = cloneRdeployYml ?? (fetchedRdeployYml?.found ? fetchedRdeployYml : null);
+  const showMonorepoSuggestions =
+    activeRdeployYml !== null &&
+    activeRdeployYml.found &&
+    activeRdeployYml.services.length > 1;
 
   return (
     <div className="space-y-6">
@@ -226,6 +252,15 @@ export default function ProjectDetailPage() {
           <p className="text-sm font-medium text-red-400">Connection failed</p>
           <p className="mt-0.5 text-sm text-red-300">{cloneError}</p>
         </div>
+      )}
+
+      {/* Monorepo suggestions */}
+      {showMonorepoSuggestions && (
+        <MonorepoSuggestions
+          teamId={project.teamId}
+          repoUrl={project.repoUrl}
+          services={activeRdeployYml!.services}
+        />
       )}
 
       {/* Project Info */}
@@ -325,6 +360,57 @@ export default function ProjectDetailPage() {
         </h2>
         <LogsViewer projectId={id} status={project.status} />
       </div>
+
+      {/* Deploy History */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          Deploy History
+        </h2>
+        <DeployHistory projectId={id} canRollback={canDeploy} />
+      </div>
+
+      {/* Resource Limits */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          Resource Limits
+        </h2>
+        <ResourceLimits project={project} canEdit={canEditEnv} />
+      </div>
+
+      {/* Deploy Target */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          Deploy Target
+        </h2>
+        <DeployTarget project={project} canManage={canDeploy} />
+      </div>
+
+      {/* Replicas */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          Replicas
+        </h2>
+        <ReplicaManager project={project} canManage={canDeploy} />
+      </div>
+
+      {/* Custom Domain */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          Custom Domain
+        </h2>
+        <CustomDomain project={project} canManage={canDeploy} />
+      </div>
+
+      {/* Auto Deploy */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          Auto Deploy
+        </h2>
+        <WebhookSetup projectId={id} canManage={canDeploy} />
+      </div>
+
+      {/* Transfer Project (Danger Zone) */}
+      <TransferProject project={project} canTransfer={isAdmin} />
     </div>
   );
 }

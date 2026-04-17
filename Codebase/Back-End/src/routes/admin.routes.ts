@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
 import { requirePlatformRole } from "../middleware/requirePlatformRole";
 import * as adminService from "../services/admin.service";
+import { getCoolifyConfig, setCoolifyConfig } from "../services/coolify.service";
 
 type PlatformRole = "owner" | "admin" | "user";
 
@@ -100,6 +101,49 @@ router.delete(
       const message = err instanceof Error ? err.message : "Failed to delete user";
       const status = err instanceof Error && err.message === "User not found" ? 404 : 400;
       res.status(status).json({ error: message });
+    }
+  }
+);
+
+// ─── Coolify Config ───────────────────────────────────────────────────────────
+
+const setCoolifySchema = z.object({
+  coolifyUrl: z.string().url("coolifyUrl must be a valid URL"),
+  coolifyApiToken: z.string().min(1, "coolifyApiToken is required"),
+});
+
+router.get(
+  "/coolify",
+  requireAuth,
+  requirePlatformRole("owner", "admin"),
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const config = await getCoolifyConfig();
+      res.json({ data: { config } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to get Coolify config";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+router.put(
+  "/coolify",
+  requireAuth,
+  requirePlatformRole("owner", "admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    const parsed = setCoolifySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.errors[0].message });
+      return;
+    }
+
+    try {
+      await setCoolifyConfig(parsed.data.coolifyUrl, parsed.data.coolifyApiToken);
+      res.json({ data: { message: "Coolify configuration saved" } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save Coolify config";
+      res.status(500).json({ error: message });
     }
   }
 );

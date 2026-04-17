@@ -74,6 +74,35 @@ router.post(
   }
 );
 
+// PUT /api/auth/notifications — update email notification preference
+const notificationsSchema = z.object({
+  emailNotifications: z.boolean(),
+});
+
+router.put(
+  "/notifications",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const parsed = notificationsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.errors[0].message });
+      return;
+    }
+
+    try {
+      const result = await authService.updateNotificationPreferences(
+        req.user.id,
+        parsed.data.emailNotifications
+      );
+      res.json({ data: result });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to update notification preferences";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
 // GET /api/auth/github — return GitHub OAuth URL as JSON
 // Frontend calls this via axios (JWT in Authorization header), then redirects browser to the returned URL.
 // This avoids exposing the JWT as a browser URL query parameter.

@@ -7,6 +7,7 @@ import {
   getGitHubAuthUrl,
   disconnectGitHub as disconnectGitHubService,
   getMe,
+  updateNotificationPreferences,
 } from "@/services/auth.service";
 import { useAuthStore } from "@/store/auth.store";
 import { ROUTES } from "@/constants/routes";
@@ -105,6 +106,27 @@ export function useDisconnectGitHub() {
       const axiosError = error as AxiosErrorLike;
       toast.error(
         axiosError.response?.data?.error ?? "Failed to disconnect GitHub"
+      );
+    },
+  });
+}
+
+export function useUpdateNotifications() {
+  const { user, token, setAuth } = useAuthStore();
+
+  return useMutation({
+    mutationFn: (emailNotifications: boolean) =>
+      updateNotificationPreferences(emailNotifications),
+    onSuccess: (emailNotifications) => {
+      if (user && token) {
+        setAuth(token, { ...user, emailNotifications });
+      }
+      toast.success("Notification preference saved");
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as AxiosErrorLike;
+      toast.error(
+        axiosError.response?.data?.error ?? "Failed to update notifications"
       );
     },
   });

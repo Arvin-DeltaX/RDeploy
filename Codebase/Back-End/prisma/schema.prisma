@@ -46,11 +46,13 @@ model User {
   githubId           String?      @unique
   githubUsername      String?
   githubAccessToken   String?
+  emailNotifications Boolean      @default(true)
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
   teamMembers        TeamMember[]
   projectAssignments ProjectAssignment[]
+  deploymentHistory  DeploymentHistory[]
 }
 
 model Team {
@@ -91,14 +93,37 @@ model Project {
   restartCount   Int           @default(0)
   exitCode       Int?
   deployLogs     String?
+  webhookSecret  String?       // HMAC secret for verifying GitHub webhook payloads
+  cpuLimit       String?       // e.g. "0.5", "1.0" — maps to --cpus flag
+  memoryLimit    String?       // e.g. "512m", "1g" — maps to --memory flag
+  replicaCount   Int           @default(1) // number of container replicas to run (1–5)
+  customDomain   String?       // e.g. "api.mycompany.com" — user-owned domain
+  deployTarget   String        @default("docker")  // "docker" | "coolify"
+  coolifyAppId   String?       // Coolify application UUID (set after first deploy to Coolify)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  team        Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  envVars     EnvVar[]
-  assignments ProjectAssignment[]
+  team              Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  envVars           EnvVar[]
+  assignments       ProjectAssignment[]
+  deploymentHistory DeploymentHistory[]
+  replicas          ProjectReplica[]
 
   @@unique([teamId, slug])
+}
+
+model ProjectReplica {
+  id           String   @id @default(uuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  replicaIndex Int      // 0-based index: 0, 1, 2...
+  containerId  String?
+  port         Int?
+  status       String   @default("stopped") // running | stopped | failed
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([projectId, replicaIndex])
 }
 
 model ProjectAssignment {
@@ -124,4 +149,27 @@ model EnvVar {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, key])
+}
+
+model PlatformConfig {
+  id              String   @id @default("singleton")
+  coolifyUrl      String?  // e.g. "https://coolify.mycompany.com"
+  coolifyApiToken String?  // Coolify API token — encrypted
+  updatedAt       DateTime @updatedAt
+}
+
+model DeploymentHistory {
+  id           String   @id @default(uuid())
+  projectId    String
+  imageTag     String
+  deployLogs   String?
+  deployedAt   DateTime @default(now())
+  deployedBy   String
+  isActive     Boolean  @default(false)
+  deployNumber Int
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [deployedBy], references: [id], onDelete: SetDefault)
+
+  @@unique([projectId, deployNumber])
 }

@@ -65,10 +65,14 @@ export function runContainer(
   teamSlug: string,
   domain: string,
   envFilePath: string,
-  onOutput?: (line: string) => void
+  onOutput?: (line: string) => void,
+  cpuLimit?: string | null,
+  memoryLimit?: string | null,
+  traefikRouterName?: string,
+  customDomain?: string | null
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const routerName = containerName;
+    const routerName = traefikRouterName ?? containerName;
     const args = [
       "run",
       "-d",
@@ -76,11 +80,32 @@ export function runContainer(
       "--network", network,
       "--env-file", envFilePath,
       `-p`, `${port}:${port}`,
+    ];
+
+    if (cpuLimit) {
+      args.push(`--cpus=${cpuLimit}`);
+    }
+    if (memoryLimit) {
+      args.push(`--memory=${memoryLimit}`);
+    }
+
+    args.push(
       `--label`, `traefik.enable=true`,
       `--label`, `traefik.http.routers.${routerName}.rule=Host(\`${projectSlug}-${teamSlug}.${domain}\`)`,
       `--label`, `traefik.http.services.${routerName}.loadbalancer.server.port=${port}`,
-      tag,
-    ];
+    );
+
+    if (customDomain) {
+      const customRouterName = `${routerName}-custom`;
+      args.push(
+        `--label`, `traefik.http.routers.${customRouterName}.rule=Host(\`${customDomain}\`)`,
+        `--label`, `traefik.http.routers.${customRouterName}.entrypoints=websecure`,
+        `--label`, `traefik.http.routers.${customRouterName}.tls=true`,
+        `--label`, `traefik.http.routers.${customRouterName}.service=${routerName}`,
+      );
+    }
+
+    args.push(tag);
 
     const proc = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
 
@@ -130,10 +155,27 @@ export function removeContainer(containerId: string): void {
 }
 
 /**
+ * Start a stopped container. Returns true on success, false on failure.
+ */
+export function startContainer(containerId: string): boolean {
+  const result = spawnSync("docker", ["start", containerId], { stdio: "ignore" });
+  return result.status === 0;
+}
+
+/**
  * Remove a Docker image. Ignores errors.
  */
 export function removeImage(tag: string): void {
   spawnSync("docker", ["rmi", tag], { stdio: "ignore" });
+}
+
+/**
+ * Tag an existing Docker image with an additional tag.
+ * e.g. tagImage("rdeploy-foo-bar:latest", "rdeploy-foo-bar:3")
+ * Ignores errors (best-effort).
+ */
+export function tagImage(sourceTag: string, targetTag: string): void {
+  spawnSync("docker", ["tag", sourceTag, targetTag], { stdio: "ignore" });
 }
 
 /**

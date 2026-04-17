@@ -11,6 +11,7 @@ interface UserPublic {
   mustChangePassword: boolean;
   githubId: string | null;
   githubUsername: string | null;
+  emailNotifications: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,6 +25,7 @@ function toPublicUser(user: {
   mustChangePassword: boolean;
   githubId: string | null;
   githubUsername: string | null;
+  emailNotifications: boolean;
   createdAt: Date;
   updatedAt: Date;
 }): UserPublic {
@@ -36,6 +38,7 @@ function toPublicUser(user: {
     mustChangePassword: user.mustChangePassword,
     githubId: user.githubId,
     githubUsername: user.githubUsername,
+    emailNotifications: user.emailNotifications,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -83,6 +86,18 @@ export async function getMe(userId: string): Promise<UserPublic> {
   }
 
   return toPublicUser(user);
+}
+
+export async function updateNotificationPreferences(
+  userId: string,
+  emailNotifications: boolean
+): Promise<{ emailNotifications: boolean }> {
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { emailNotifications },
+    select: { emailNotifications: true },
+  });
+  return { emailNotifications: user.emailNotifications };
 }
 
 export async function changePassword(

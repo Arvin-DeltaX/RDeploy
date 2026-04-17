@@ -1,10 +1,22 @@
 import path from "path";
 import fs from "fs";
 import { spawnSync } from "child_process";
+import yaml from "js-yaml";
 import prisma from "../lib/prisma";
 import { getDecryptedGitHubToken } from "./github.service";
 
 type PlatformRole = "owner" | "admin" | "user";
+
+export interface RdeployYmlService {
+  name: string;
+  dockerfile: string;
+  description: string;
+}
+
+export interface RdeployYmlResult {
+  found: boolean;
+  services: RdeployYmlService[];
+}
 
 interface CloneResult {
   project: {
@@ -26,6 +38,7 @@ interface CloneResult {
     team: { id: string; name: string; slug: string };
   };
   envKeys: string[];
+  rdeployYml: RdeployYmlResult;
 }
 
 function getWorkspaceBase(): string {
@@ -42,6 +55,42 @@ function resolveWorkspacePath(teamSlug: string, projectSlug: string): string {
   }
 
   return resolved;
+}
+
+export function parseRdeployYml(repoPath: string): RdeployYmlResult {
+  const ymlPath = path.join(repoPath, "rdeploy.yml");
+
+  if (!fs.existsSync(ymlPath)) {
+    return { found: false, services: [] };
+  }
+
+  const raw = fs.readFileSync(ymlPath, "utf-8");
+  const parsed = yaml.load(raw);
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("services" in parsed) ||
+    typeof (parsed as Record<string, unknown>).services !== "object" ||
+    (parsed as Record<string, unknown>).services === null
+  ) {
+    return { found: true, services: [] };
+  }
+
+  const servicesMap = (parsed as { services: Record<string, unknown> }).services;
+
+  const services: RdeployYmlService[] = Object.entries(servicesMap)
+    .filter(([, value]) => typeof value === "object" && value !== null)
+    .map(([name, value]) => {
+      const svc = value as Record<string, unknown>;
+      return {
+        name,
+        dockerfile: typeof svc["dockerfile"] === "string" ? svc["dockerfile"] : "",
+        description: typeof svc["description"] === "string" ? svc["description"] : "",
+      };
+    });
+
+  return { found: true, services };
 }
 
 function parseEnvExample(filePath: string): string[] {
@@ -201,7 +250,9 @@ export async function cloneRepo(
       include: { team: { select: { id: true, name: true, slug: true } } },
     });
 
-    return { project: updated, envKeys };
+    const rdeployYml = parseRdeployYml(workspacePath);
+
+    return { project: updated, envKeys, rdeployYml };
   } catch (err) {
     // If already set to failed above, don't overwrite with a generic error
     const currentProject = await prisma.project.findUnique({

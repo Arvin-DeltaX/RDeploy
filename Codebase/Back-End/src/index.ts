@@ -6,8 +6,9 @@ import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
 import teamsRouter from "./routes/teams.routes";
 import projectsRouter from "./routes/projects.routes";
+import webhookRouter from "./routes/webhook.routes";
 import { errorHandler } from "./middleware/errorHandler";
-import { inspectContainer } from "./services/docker.service";
+import { inspectContainer, startContainer } from "./services/docker.service";
 import { healthCheckHttp } from "./services/deploy.service";
 
 dotenv.config();
@@ -39,6 +40,10 @@ app.use(
     credentials: true,
   })
 );
+// Webhook routes must be registered before express.json() so the raw body
+// middleware applied per-route can read the unparsed request body for HMAC verification.
+app.use("/api/webhooks", webhookRouter);
+
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => {
@@ -63,17 +68,76 @@ function startHealthPoller(): void {
     try {
       const runningProjects = await prisma.project.findMany({
         where: { status: "running" },
-        select: { id: true, containerId: true, port: true },
+        select: {
+          id: true,
+          containerId: true,
+          port: true,
+          restartCount: true,
+          replicas: {
+            where: { status: "running" },
+            select: { id: true, containerId: true, port: true },
+          },
+        },
       });
 
       for (const project of runningProjects) {
         try {
+          // Check replica containers when replicas are tracked
+          if (project.replicas.length > 0) {
+            let anyRunning = false;
+            let allFailed = true;
+
+            for (const replica of project.replicas) {
+              if (!replica.containerId) continue;
+
+              const state = inspectContainer(replica.containerId);
+
+              if (!state || !state.running) {
+                await prisma.projectReplica.update({
+                  where: { id: replica.id },
+                  data: { status: "failed" },
+                });
+              } else {
+                anyRunning = true;
+                allFailed = false;
+
+                await prisma.projectReplica.update({
+                  where: { id: replica.id },
+                  data: { status: "running" },
+                });
+              }
+            }
+
+            // Determine overall project health from first replica's port
+            const firstRunningReplica = project.replicas.find((r) => r.port !== null);
+            let projectHealthStatus: "healthy" | "unhealthy" = "unhealthy";
+
+            if (firstRunningReplica?.port !== null && firstRunningReplica?.port !== undefined) {
+              const healthy = await healthCheckHttp(firstRunningReplica.port);
+              projectHealthStatus = healthy ? "healthy" : "unhealthy";
+            }
+
+            if (allFailed) {
+              await prisma.project.update({
+                where: { id: project.id },
+                data: { status: "failed", healthStatus: "unknown" },
+              });
+            } else if (anyRunning) {
+              await prisma.project.update({
+                where: { id: project.id },
+                data: { healthStatus: projectHealthStatus },
+              });
+            }
+
+            continue;
+          }
+
+          // Legacy single-container path (no replica records)
           if (!project.containerId) continue;
 
           const state = inspectContainer(project.containerId);
 
           if (!state) {
-            // Container no longer exists
             await prisma.project.update({
               where: { id: project.id },
               data: { status: "failed", healthStatus: "unknown" },
@@ -82,25 +146,60 @@ function startHealthPoller(): void {
           }
 
           if (!state.running) {
-            await prisma.project.update({
-              where: { id: project.id },
-              data: {
-                status: "failed",
-                healthStatus: "unknown",
-                exitCode: state.exitCode,
-                restartCount: state.restartCount,
-              },
-            });
+            // Clean stop (exit code 0) — mark stopped, no restart
+            if (state.exitCode === 0) {
+              await prisma.project.update({
+                where: { id: project.id },
+                data: {
+                  status: "stopped",
+                  healthStatus: "unknown",
+                  exitCode: state.exitCode,
+                },
+              });
+              continue;
+            }
+
+            // Crash (non-zero exit code) — auto-restart once
+            if (project.restartCount === 0) {
+              const restarted = startContainer(project.containerId);
+              if (restarted) {
+                console.log(`Auto-restarted crashed container for project ${project.id}`);
+                await prisma.project.update({
+                  where: { id: project.id },
+                  data: {
+                    restartCount: 1,
+                    healthStatus: "unknown",
+                  },
+                });
+              } else {
+                console.error(`Failed to restart container for project ${project.id}`);
+                await prisma.project.update({
+                  where: { id: project.id },
+                  data: {
+                    status: "failed",
+                    healthStatus: "unknown",
+                    exitCode: state.exitCode,
+                  },
+                });
+              }
+            } else {
+              await prisma.project.update({
+                where: { id: project.id },
+                data: {
+                  status: "failed",
+                  healthStatus: "unknown",
+                  exitCode: state.exitCode,
+                },
+              });
+            }
             continue;
           }
 
           // Container is running — health check
           const updateData: {
-            restartCount: number;
             exitCode: number;
             healthStatus: "healthy" | "unhealthy";
           } = {
-            restartCount: state.restartCount,
             exitCode: state.exitCode,
             healthStatus: "unhealthy",
           };

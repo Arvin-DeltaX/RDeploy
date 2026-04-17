@@ -1,5 +1,5 @@
 "use client";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -30,9 +30,14 @@ type FormValues = z.infer<typeof schema>;
 export default function NewProjectPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const { data: teamData, isLoading: teamLoading } = useTeam(id);
   const createProject = useCreateProject(id);
+
+  const prefillName = searchParams.get("name") ?? "";
+  const prefillRepoUrl = searchParams.get("repoUrl") ?? "";
+  const prefillDockerfilePath = searchParams.get("dockerfilePath") ?? "";
 
   const {
     register,
@@ -40,7 +45,11 @@ export default function NewProjectPage() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { dockerfilePath: "" },
+    defaultValues: {
+      name: prefillName,
+      repoUrl: prefillRepoUrl,
+      dockerfilePath: prefillDockerfilePath,
+    },
   });
 
   const isAdmin = user?.platformRole === "owner" || user?.platformRole === "admin";

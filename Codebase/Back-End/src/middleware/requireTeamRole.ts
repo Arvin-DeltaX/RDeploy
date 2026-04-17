@@ -26,7 +26,7 @@ export function requireTeamRole(
       return;
     }
 
-    const teamId = req.params.teamId ?? req.params.id;
+    const teamId = (req.params.teamId ?? req.params.id) as string;
 
     if (!teamId) {
       res.status(400).json({ error: "Team ID is required" });

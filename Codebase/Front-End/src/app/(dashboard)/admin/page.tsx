@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { useAuthStore } from "@/store/auth.store";
 import { useUsers, useCreateUser, useUpdateUserRole, useDeleteUser } from "@/hooks/useUsers";
+import { useCoolifyConfig, useSetCoolifyConfig } from "@/hooks/useAdmin";
 import { CreateUserModal } from "@/components/organisms/CreateUserModal";
 import { ConfirmDialog } from "@/components/molecules/ConfirmDialog";
 import { Button } from "@/components/atoms/Button";
@@ -12,7 +13,7 @@ import { Select } from "@/components/atoms/Select";
 import { Spinner } from "@/components/atoms/Spinner";
 import { EmptyState } from "@/components/molecules/EmptyState";
 import { UserAvatar } from "@/components/molecules/UserAvatar";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { ROUTES } from "@/constants/routes";
 import type { PlatformRole, User } from "@/types/user.types";
 
@@ -35,6 +36,128 @@ export default function AdminPage() {
   }
 
   return <AdminContent />;
+}
+
+function CoolifyConfigSection() {
+  const { data: config, isLoading } = useCoolifyConfig();
+  const setConfig = useSetCoolifyConfig();
+  const [coolifyUrl, setCoolifyUrl] = useState("");
+  const [coolifyApiToken, setCoolifyApiToken] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+
+  function handleEdit() {
+    setCoolifyUrl(config?.coolifyUrl ?? "");
+    setCoolifyApiToken("");
+    setIsEditing(true);
+  }
+
+  function handleCancel() {
+    setIsEditing(false);
+  }
+
+  function handleSave() {
+    setConfig.mutate(
+      { coolifyUrl, coolifyApiToken },
+      { onSuccess: () => setIsEditing(false) }
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-xl font-semibold text-foreground">Coolify Integration</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Connect RDeploy to a Coolify instance to use it as an alternative deploy target.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+        {isLoading ? (
+          <div className="flex justify-center py-4">
+            <Spinner />
+          </div>
+        ) : !isEditing ? (
+          <>
+            <dl className="space-y-3">
+              <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
+                <dt className="sm:w-36 shrink-0 text-sm text-muted-foreground">Coolify URL</dt>
+                <dd className="text-sm text-foreground font-mono">
+                  {config?.coolifyUrl ?? (
+                    <span className="text-muted-foreground italic">Not configured</span>
+                  )}
+                </dd>
+              </div>
+              <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
+                <dt className="sm:w-36 shrink-0 text-sm text-muted-foreground">API Token</dt>
+                <dd>
+                  <Badge variant={config?.tokenIsSet ? "success" : "secondary"}>
+                    {config?.tokenIsSet ? "Configured" : "Not set"}
+                  </Badge>
+                </dd>
+              </div>
+            </dl>
+            <Button variant="outline" size="sm" onClick={handleEdit}>
+              {config?.coolifyUrl ? "Edit" : "Configure"}
+            </Button>
+          </>
+        ) : (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="coolifyUrl" className="block text-sm font-medium text-foreground">
+                Coolify URL
+              </label>
+              <input
+                id="coolifyUrl"
+                type="url"
+                value={coolifyUrl}
+                onChange={(e) => setCoolifyUrl(e.target.value)}
+                placeholder="https://coolify.example.com"
+                className={cn(
+                  "w-full rounded-md border border-input bg-background px-3 py-2",
+                  "text-sm text-foreground placeholder:text-muted-foreground",
+                  "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                )}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="coolifyApiToken" className="block text-sm font-medium text-foreground">
+                API Token
+              </label>
+              <input
+                id="coolifyApiToken"
+                type="password"
+                value={coolifyApiToken}
+                onChange={(e) => setCoolifyApiToken(e.target.value)}
+                placeholder="Enter Coolify API token"
+                className={cn(
+                  "w-full rounded-md border border-input bg-background px-3 py-2",
+                  "text-sm text-foreground placeholder:text-muted-foreground",
+                  "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                )}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={setConfig.isPending || !coolifyUrl.trim() || !coolifyApiToken.trim()}
+              >
+                {setConfig.isPending ? "Saving..." : "Save"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCancel}
+                disabled={setConfig.isPending}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function AdminContent() {
@@ -138,6 +261,8 @@ function AdminContent() {
           </table>
         </div>
       )}
+
+      <CoolifyConfigSection />
 
       <CreateUserModal
         open={createOpen}

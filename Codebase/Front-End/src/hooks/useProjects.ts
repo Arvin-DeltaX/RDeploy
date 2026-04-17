@@ -1,9 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as projectsService from "@/services/projects.service";
-import type { CreateProjectPayload, UpdateEnvVarsPayload } from "@/services/projects.service";
+import type {
+  CreateProjectPayload,
+  UpdateEnvVarsPayload,
+  UpdateResourceLimitsPayload,
+} from "@/services/projects.service";
 import type { AxiosErrorLike } from "@/types/api.types";
 import type { ProjectStatus } from "@/types/project.types";
+import { ROUTES } from "@/constants/routes";
 
 export function useAllProjects() {
   return useQuery({
@@ -105,6 +111,14 @@ export function useRemoveProjectMember(projectId: string) {
   });
 }
 
+export function useRdeployYml(projectId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["rdeployYml", projectId],
+    queryFn: () => projectsService.getRdeployYml(projectId),
+    enabled: !!projectId && enabled,
+  });
+}
+
 export function useCloneRepo(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -198,6 +212,116 @@ export function useContainerStatus(projectId: string, enabled: boolean) {
   });
 }
 
+export function useDeployHistory(projectId: string) {
+  return useQuery({
+    queryKey: ["deployHistory", projectId],
+    queryFn: () => projectsService.getDeployHistory(projectId),
+    enabled: !!projectId,
+  });
+}
+
+export function useRollbackDeploy(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (deployId: string) => projectsService.rollbackDeploy(projectId, deployId),
+    onSuccess: () => {
+      toast.success("Rollback successful");
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["deployHistory", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Rollback failed");
+    },
+  });
+}
+
+export function useWebhookInfo(projectId: string) {
+  return useQuery({
+    queryKey: ["webhook", projectId],
+    queryFn: () => projectsService.getWebhookInfo(projectId),
+    enabled: !!projectId,
+  });
+}
+
+export function useSetupWebhook(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => projectsService.setupWebhook(projectId),
+    onSuccess: () => {
+      toast.success("Webhook configured successfully");
+      void queryClient.invalidateQueries({ queryKey: ["webhook", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to configure webhook");
+    },
+  });
+}
+
+export function useDeleteWebhook(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => projectsService.deleteWebhook(projectId),
+    onSuccess: () => {
+      toast.success("Webhook disabled");
+      void queryClient.invalidateQueries({ queryKey: ["webhook", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to disable webhook");
+    },
+  });
+}
+
+export function useUpdateReplicaCount(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (replicaCount: number) =>
+      projectsService.updateReplicaCount(projectId, replicaCount),
+    onSuccess: () => {
+      toast.success("Replica count saved");
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to save replica count");
+    },
+  });
+}
+
+export function useUpdateResourceLimits(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: UpdateResourceLimitsPayload) =>
+      projectsService.updateResourceLimits(projectId, data),
+    onSuccess: () => {
+      toast.success("Resource limits saved");
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to save resource limits");
+    },
+  });
+}
+
+export function useUpdateCustomDomain(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (customDomain: string | null) =>
+      projectsService.updateCustomDomain(projectId, customDomain),
+    onSuccess: () => {
+      toast.success("Custom domain updated");
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to update custom domain");
+    },
+  });
+}
+
 export function useUploadEnvFile(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -209,6 +333,41 @@ export function useUploadEnvFile(projectId: string) {
     onError: (error: unknown) => {
       const err = error as AxiosErrorLike;
       toast.error(err.response?.data?.error ?? "Failed to upload env file");
+    },
+  });
+}
+
+export function useUpdateDeployTarget(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (deployTarget: "docker" | "coolify") =>
+      projectsService.updateDeployTarget(projectId, deployTarget),
+    onSuccess: () => {
+      toast.success("Deploy target updated");
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to update deploy target");
+    },
+  });
+}
+
+export function useTransferProject(projectId: string) {
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  return useMutation({
+    mutationFn: (targetTeamId: string) =>
+      projectsService.transferProject(projectId, targetTeamId),
+    onSuccess: (data) => {
+      toast.success("Project transferred successfully");
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["teams"] });
+      router.push(ROUTES.TEAM_DETAIL(data.teamId));
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to transfer project");
     },
   });
 }

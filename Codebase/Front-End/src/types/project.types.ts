@@ -1,3 +1,14 @@
+export interface RdeployYmlService {
+  name: string
+  dockerfile: string
+  description: string
+}
+
+export interface RdeployYmlResult {
+  found: boolean
+  services: RdeployYmlService[]
+}
+
 export type ProjectStatus =
   | "pending"
   | "cloning"
@@ -16,6 +27,14 @@ export interface EnvVar {
   hasValue: boolean;
 }
 
+export interface ProjectReplica {
+  id: string;
+  replicaIndex: number;
+  containerId: string | null;
+  port: number | null;
+  status: string;
+}
+
 export interface Project {
   id: string;
   teamId: string;
@@ -30,6 +49,13 @@ export interface Project {
   restartCount: number;
   exitCode: number | null;
   deployLogs: string | null;
+  cpuLimit: string | null;
+  memoryLimit: string | null;
+  replicaCount: number;
+  replicas: ProjectReplica[];
+  customDomain: string | null;
+  deployTarget: string;
+  coolifyAppId: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -25,6 +25,16 @@ export async function disconnectGitHub(): Promise<void> {
   await api.delete("/api/auth/github");
 }
 
+export async function updateNotificationPreferences(
+  emailNotifications: boolean
+): Promise<boolean> {
+  const res = await api.put<{ data: { emailNotifications: boolean } }>(
+    "/api/auth/notifications",
+    { emailNotifications }
+  );
+  return res.data.data.emailNotifications;
+}
+
 export async function changePassword(
   currentPassword: string,
   newPassword: string
