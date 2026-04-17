@@ -212,7 +212,7 @@
 - [x] Resource limits per container (CPU/memory flags on `docker run`)
 - [x] Multiple replicas per project
 - [x] Custom domain per project
-- [ ] Email notifications on deploy success/failure
+- [x] Email notifications on deploy success/failure
 - [ ] Project transfer between teams
 
 ### Platform
