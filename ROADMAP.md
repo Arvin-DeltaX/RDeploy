@@ -145,12 +145,12 @@
   - [x] If container no longer exists → set status to "failed", healthStatus to "unknown"
 
 ### Docker + Traefik
-- [ ] docker-compose.yml (traefik, frontend, backend, postgres — all on rdeploy-net)
-- [ ] Define rdeploy-net bridge network in docker-compose.yml
-- [ ] Traefik static config (wildcard *.deltaxs.co, watch Docker socket on rdeploy-net)
-- [ ] Docker labels on user containers for dynamic routing
-- [ ] Container naming: rdeploy-{project-slug}-{team-slug}
-- [ ] URL pattern: {project-slug}-{team-slug}.deltaxs.co
+- [x] docker-compose.yml (traefik, frontend, backend, postgres — all on rdeploy-net)
+- [x] Define rdeploy-net bridge network in docker-compose.yml
+- [x] Traefik static config (wildcard *.deltaxs.co, watch Docker socket on rdeploy-net)
+- [x] Docker labels on user containers for dynamic routing
+- [x] Container naming: rdeploy-{project-slug}-{team-slug}
+- [x] URL pattern: {project-slug}-{team-slug}.deltaxs.co
 
 ### Frontend
 - [ ] "Deploy" button (with confirm dialog) — leader/admin/owner only

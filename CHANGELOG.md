@@ -121,6 +121,17 @@ All notable changes are documented here, organized by phase.
 - Created src/services/docker.service.ts — all Docker CLI operations (build, run, stop, remove, inspect, stream logs)
 - Created src/utils/ports.ts — port auto-assignment scanning DB for used ports in PORT_RANGE_START–PORT_RANGE_END range
 
+### Docker + Traefik
+- Created docker-compose.yml with traefik, frontend, backend, and postgres services on rdeploy-net external bridge network
+- Traefik v3.0 configured with Docker provider, Let's Encrypt TLS (ACME), entrypoints on 80/443
+- rdeploy-net declared as external network so user containers can join it independently via Docker CLI
+- Backend Traefik labels route /api traffic; frontend labels route root domain
+- User container label pattern documented in docker-compose.yml comments: rdeploy-{project-slug}-{team-slug} on rdeploy-net with dynamic Traefik host rules
+- Created Codebase/Back-End/Dockerfile — 3-stage Node 20 Alpine build (deps → builder → runner)
+- Created Codebase/Front-End/Dockerfile — 3-stage Node 20 Alpine standalone build
+- Added output: "standalone" to next.config.ts for frontend Docker build
+- Updated .env.example with POSTGRES_PASSWORD, RDEPLOY_PLATFORM_SUBDOMAIN, ACME_EMAIL
+
 ---
 
 ## [Phase 6] - GitHub Connect
