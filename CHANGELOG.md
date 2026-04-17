@@ -140,6 +140,11 @@ All notable changes are documented here, organized by phase.
 - Updated useProjects.ts — added useDeployProject, useRedeployProject, useStopProject, useDeployLogs, useContainerStatus (30s polling), useUploadEnvFile; useProject now polls at 2s during building/cloning
 - Updated projects.service.ts — added deployProject, redeployProject, stopProject, getDeployLogs, getContainerStatus, uploadEnvFile
 
+### Refactoring
+- Extracted deploy orchestration logic into dedicated deploy.service.ts for cleaner separation of concerns
+- Refactored healthCheckHttp into shared utility for reuse across deployment endpoints
+- Moved useSSELogs hook into hooks/ directory per frontend architecture standards
+
 ---
 
 ## [Phase 6] - GitHub Connect
