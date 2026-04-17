@@ -90,7 +90,9 @@ All notable changes are documented here, organized by phase.
 > Status: 🟡 In Progress
 
 ### Added
-- (tasks will be logged here as they complete)
+- Added POST /api/projects/:id/clone — clones GitHub repo to workspace, validates Dockerfile and .env.example, parses env keys, saves to DB, handles status transitions
+- Added GET /api/projects/:id/env — returns all env var keys with indicators for which have values set
+- Added PUT /api/projects/:id/env — saves encrypted env var values to database
 
 ---
 

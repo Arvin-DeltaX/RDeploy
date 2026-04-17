@@ -84,15 +84,15 @@
 ## Phase 4 — Repo Connection & Env Vars
 
 ### Backend
-- [ ] POST /api/projects/:id/clone
-  - [ ] Clone GitHub repo to workspace/{team}/{project}/repo/
-  - [ ] Validate Dockerfile exists at `dockerfilePath` → error if missing
-  - [ ] Validate .env.example exists → error if missing
-  - [ ] Parse .env.example → extract all keys
-  - [ ] Save keys to EnvVar table (no values yet)
-  - [ ] Update project status: pending → cloning → ready (or failed)
-- [ ] GET /api/projects/:id/env (return keys + whether value is set)
-- [ ] PUT /api/projects/:id/env (save encrypted env values)
+- [x] POST /api/projects/:id/clone
+  - [x] Clone GitHub repo to workspace/{team}/{project}/repo/
+  - [x] Validate Dockerfile exists at `dockerfilePath` → error if missing
+  - [x] Validate .env.example exists → error if missing
+  - [x] Parse .env.example → extract all keys
+  - [x] Save keys to EnvVar table (no values yet)
+  - [x] Update project status: pending → cloning → ready (or failed)
+- [x] GET /api/projects/:id/env (return keys + whether value is set)
+- [x] PUT /api/projects/:id/env (save encrypted env values)
 
 ### Frontend
 - [ ] "Connect Repo" button on project detail page
