@@ -109,8 +109,17 @@ All notable changes are documented here, organized by phase.
 ## [Phase 5] - Deployment
 > Status: 🟡 In Progress
 
-### Added
-- (tasks will be logged here as they complete)
+### Backend
+- Added POST /api/projects/:id/deploy — full Docker build + run flow with 409 guard for active status, missing env var validation, localhost warning confirmation, port auto-assignment, .env write + immediate delete, deploy logs capped at 50KB, 15s background health check
+- Added POST /api/projects/:id/redeploy — atomic stop + rebuild + restart, same logic as deploy
+- Added POST /api/projects/:id/stop — stops and removes container, sets status to stopped
+- Added GET /api/projects/:id/logs — returns persisted deploy logs snapshot from Project.deployLogs
+- Added GET /api/projects/:id/container-status — live docker inspect: Running, ExitCode, RestartCount, StartedAt
+- Added POST /api/projects/:id/env/upload — multer file upload, parses .env file, bulk-fills matching EnvVar records with encryption
+- Added GET /api/projects/:id/logs/stream — SSE endpoint: ?type=deploy streams live build output during active deploys; ?type=app streams docker logs --follow from running container; 30s keepalive
+- Added background health check poller — every 60s, inspects all running containers, updates healthStatus/restartCount/exitCode, marks failed if container is gone
+- Created src/services/docker.service.ts — all Docker CLI operations (build, run, stop, remove, inspect, stream logs)
+- Created src/utils/ports.ts — port auto-assignment scanning DB for used ports in PORT_RANGE_START–PORT_RANGE_END range
 
 ---
 

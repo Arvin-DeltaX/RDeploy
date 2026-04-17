@@ -109,40 +109,40 @@
 ## Phase 5 — Deployment
 
 ### Backend
-- [ ] POST /api/projects/:id/deploy
-  - [ ] Guard: reject with 409 if project status is "building" or "cloning"
-  - [ ] Pre-deploy: check all env var values are non-empty → return error listing missing keys
-  - [ ] Pre-deploy: scan env values for localhost/127.0.0.1/0.0.0.0 → return warning payload (frontend confirms before proceeding)
-  - [ ] If project has existing container → stop and remove it first
-  - [ ] Auto-inject PORT={assigned-port} into .env alongside user-defined vars
-  - [ ] Write .env file from decrypted DB values to workspace
-  - [ ] Build Docker image using project's `dockerfilePath`: `docker build -t rdeploy-{project}-{team} -f {dockerfilePath} {workspace}/repo/`
-  - [ ] Auto-assign port: scan DB for used ports → pick lowest free in PORT_RANGE_START–PORT_RANGE_END range
-  - [ ] Run container with --network rdeploy-net + Traefik labels for routing
-  - [ ] Store container ID + port in DB
-  - [ ] Delete .env file from workspace immediately after docker run starts
-  - [ ] Persist all build + run output to Project.deployLogs (cap at ~50KB, truncate from top if exceeded)
-  - [ ] Update project status: ready → building → running (or failed)
-  - [ ] Post-deploy health check: wait 15s → GET /health on container → set Project.healthStatus
-- [ ] POST /api/projects/:id/redeploy (same logic as deploy, same guards)
-- [ ] POST /api/projects/:id/stop
-  - [ ] Stop and remove container
-  - [ ] Update status to stopped, healthStatus to unknown
-- [ ] GET /api/projects/:id/logs
-  - [ ] Return Project.deployLogs (persisted text from last deploy, not live docker logs)
-- [ ] GET /api/projects/:id/container-status
-  - [ ] docker inspect containerId → return Running, ExitCode, RestartCount, StartedAt
-  - [ ] Return 404 with message if no container
-- [ ] POST /api/projects/:id/env/upload (parse uploaded .env file → bulk-fill matching EnvVar records)
-- [ ] GET /api/projects/:id/logs/stream
-  - [ ] SSE endpoint — ?type=deploy (default): stream live build + run output during active deploy/clone
-  - [ ] ?type=app: stream docker logs --tail=100 --follow from running container
-  - [ ] Send status-change events so frontend badge updates without polling
-  - [ ] Close connection when operation completes, fails, or client disconnects
-- [ ] Background health check poller (interval in backend process, every 60s)
-  - [ ] For all projects with status "running": docker inspect + GET /health on container
-  - [ ] Update Project.healthStatus, restartCount, exitCode
-  - [ ] If container no longer exists → set status to "failed", healthStatus to "unknown"
+- [x] POST /api/projects/:id/deploy
+  - [x] Guard: reject with 409 if project status is "building" or "cloning"
+  - [x] Pre-deploy: check all env var values are non-empty → return error listing missing keys
+  - [x] Pre-deploy: scan env values for localhost/127.0.0.1/0.0.0.0 → return warning payload (frontend confirms before proceeding)
+  - [x] If project has existing container → stop and remove it first
+  - [x] Auto-inject PORT={assigned-port} into .env alongside user-defined vars
+  - [x] Write .env file from decrypted DB values to workspace
+  - [x] Build Docker image using project's `dockerfilePath`: `docker build -t rdeploy-{project}-{team} -f {dockerfilePath} {workspace}/repo/`
+  - [x] Auto-assign port: scan DB for used ports → pick lowest free in PORT_RANGE_START–PORT_RANGE_END range
+  - [x] Run container with --network rdeploy-net + Traefik labels for routing
+  - [x] Store container ID + port in DB
+  - [x] Delete .env file from workspace immediately after docker run starts
+  - [x] Persist all build + run output to Project.deployLogs (cap at ~50KB, truncate from top if exceeded)
+  - [x] Update project status: ready → building → running (or failed)
+  - [x] Post-deploy health check: wait 15s → GET /health on container → set Project.healthStatus
+- [x] POST /api/projects/:id/redeploy (same logic as deploy, same guards)
+- [x] POST /api/projects/:id/stop
+  - [x] Stop and remove container
+  - [x] Update status to stopped, healthStatus to unknown
+- [x] GET /api/projects/:id/logs
+  - [x] Return Project.deployLogs (persisted text from last deploy, not live docker logs)
+- [x] GET /api/projects/:id/container-status
+  - [x] docker inspect containerId → return Running, ExitCode, RestartCount, StartedAt
+  - [x] Return 404 with message if no container
+- [x] POST /api/projects/:id/env/upload (parse uploaded .env file → bulk-fill matching EnvVar records)
+- [x] GET /api/projects/:id/logs/stream
+  - [x] SSE endpoint — ?type=deploy (default): stream live build + run output during active deploy/clone
+  - [x] ?type=app: stream docker logs --tail=100 --follow from running container
+  - [x] Send status-change events so frontend badge updates without polling
+  - [x] Close connection when operation completes, fails, or client disconnects
+- [x] Background health check poller (interval in backend process, every 60s)
+  - [x] For all projects with status "running": docker inspect + GET /health on container
+  - [x] Update Project.healthStatus, restartCount, exitCode
+  - [x] If container no longer exists → set status to "failed", healthStatus to "unknown"
 
 ### Docker + Traefik
 - [ ] docker-compose.yml (traefik, frontend, backend, postgres — all on rdeploy-net)
