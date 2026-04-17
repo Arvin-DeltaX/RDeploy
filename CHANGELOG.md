@@ -189,3 +189,8 @@ All notable changes are documented here, organized by phase.
 - Added responsive form headers and stacked label/input pairs on mobile
 - Added EmptyState component with icon, title, and description to all list pages (teams, projects, members, users)
 - Added appropriate empty state messages for no teams, no projects, no assigned members, and no users
+
+---
+
+## [Bonus] - Post-MVP Features
+> Status: 🟡 In Progress
