@@ -3,8 +3,18 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { Users, ExternalLink, GitBranch } from "lucide-react";
-import { useProject, useCloneRepo, useEnvVars, useUpdateEnvVars } from "@/hooks/useProjects";
+import {
+  useProject,
+  useCloneRepo,
+  useEnvVars,
+  useUpdateEnvVars,
+  useDeployProject,
+  useStopProject,
+  useRedeployProject,
+} from "@/hooks/useProjects";
 import { useTeam } from "@/hooks/useTeams";
 import { useAuthStore } from "@/store/auth.store";
 import { Spinner } from "@/components/atoms/Spinner";
@@ -12,13 +22,20 @@ import { Button } from "@/components/atoms/Button";
 import { EmptyState } from "@/components/molecules/EmptyState";
 import { HealthBadge } from "@/components/molecules/HealthBadge";
 import { EnvVarsForm } from "@/components/organisms/EnvVarsForm";
+import { DeployButton } from "@/components/organisms/DeployButton";
+import { ContainerStatusBar } from "@/components/organisms/ContainerStatusBar";
+import { LogsViewer } from "@/components/organisms/LogsViewer";
 import { cn } from "@/lib/utils";
 import { STATUS_LABELS, STATUS_COLORS } from "@/constants/status";
 import { ROUTES } from "@/constants/routes";
+import type { AxiosErrorLike } from "@/types/api.types";
+
+const RDEPLOY_DOMAIN = process.env.NEXT_PUBLIC_RDEPLOY_DOMAIN ?? "deltaxs.co";
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuthStore();
+  const queryClient = useQueryClient();
   const { data: project, isLoading, isError } = useProject(id);
 
   const isAdmin = user?.platformRole === "owner" || user?.platformRole === "admin";
@@ -29,21 +46,71 @@ export default function ProjectDetailPage() {
   const canManageMembers = isAdmin || isLeader;
   const canEditEnv = isAdmin || teamRole === "leader" || teamRole === "elder";
   const canClone = isAdmin || isLeader;
+  const canDeploy = isAdmin || isLeader;
 
   const cloneMutation = useCloneRepo(id);
   const { data: envVars = [] } = useEnvVars(id);
   const updateEnvMutation = useUpdateEnvVars(id);
+  const deployMutation = useDeployProject(id);
+  const stopMutation = useStopProject(id);
+  const redeployMutation = useRedeployProject(id);
 
   const [cloneError, setCloneError] = useState<string | null>(null);
+  const [localhostKeys, setLocalhostKeys] = useState<string[]>([]);
+  const [missingKeys, setMissingKeys] = useState<string[]>([]);
 
   function handleClone() {
     setCloneError(null);
     cloneMutation.mutate(undefined, {
       onError: (error: unknown) => {
-        const err = error as { response?: { data?: { error?: string } } };
+        const err = error as AxiosErrorLike;
         setCloneError(err.response?.data?.error ?? "Failed to connect repository.");
       },
     });
+  }
+
+  function handleDeploy() {
+    setMissingKeys([]);
+    deployMutation.mutate(undefined, {
+      onSuccess: (result) => {
+        if ("warning" in result && result.warning) {
+          setLocalhostKeys(result.localhostKeys);
+        } else {
+          toast.success("Deployment started");
+          void queryClient.invalidateQueries({ queryKey: ["projects", id] });
+        }
+      },
+      onError: (error: unknown) => {
+        const err = error as AxiosErrorLike;
+        if (err.response?.data?.missingKeys) {
+          setMissingKeys(err.response.data.missingKeys);
+        }
+        toast.error(err.response?.data?.error ?? "Deploy failed");
+      },
+    });
+  }
+
+  function handleConfirmLocalhost() {
+    setLocalhostKeys([]);
+    deployMutation.mutate(true, {
+      onSuccess: (result) => {
+        if ("warning" in result && result.warning) {
+          // should not happen after confirmation
+          setLocalhostKeys(result.localhostKeys);
+        } else {
+          toast.success("Deployment started");
+          void queryClient.invalidateQueries({ queryKey: ["projects", id] });
+        }
+      },
+      onError: (error: unknown) => {
+        const err = error as AxiosErrorLike;
+        toast.error(err.response?.data?.error ?? "Deploy failed");
+      },
+    });
+  }
+
+  function handleCancelLocalhost() {
+    setLocalhostKeys([]);
   }
 
   if (isLoading) {
@@ -104,7 +171,7 @@ export default function ProjectDetailPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {showConnectRepo && (
             <Button
               size="sm"
@@ -124,8 +191,34 @@ export default function ProjectDetailPage() {
               </Button>
             </Link>
           )}
+
+          <DeployButton
+            projectId={id}
+            status={project.status}
+            canDeploy={canDeploy}
+            onDeploy={handleDeploy}
+            onStop={() => stopMutation.mutate()}
+            onRedeploy={() => redeployMutation.mutate()}
+            isDeploying={deployMutation.isPending}
+            isStopping={stopMutation.isPending}
+            isRedeploying={redeployMutation.isPending}
+            missingKeys={missingKeys}
+            localhostWarning={localhostKeys}
+            onConfirmLocalhostWarning={handleConfirmLocalhost}
+            onCancelLocalhostWarning={handleCancelLocalhost}
+          />
         </div>
       </div>
+
+      {/* Container status bar */}
+      {project.status === "running" && (
+        <ContainerStatusBar
+          projectId={id}
+          status={project.status}
+          healthStatus={project.healthStatus}
+          port={project.port}
+        />
+      )}
 
       {/* Clone error */}
       {cloneError && (
@@ -185,7 +278,7 @@ export default function ProjectDetailPage() {
               </dd>
             </div>
           )}
-          {project.port && (
+          {project.port !== null && (
             <div className="flex items-start gap-2">
               <dt className="w-36 shrink-0 text-sm text-muted-foreground">Port</dt>
               <dd className="text-sm text-foreground font-mono">{project.port}</dd>
@@ -199,12 +292,12 @@ export default function ProjectDetailPage() {
         <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-4">
           <p className="text-sm font-medium text-green-400">Project is live</p>
           <a
-            href={`https://${project.slug}-${project.team.slug}.deltaxs.co`}
+            href={`https://${project.slug}-${project.team.slug}.${RDEPLOY_DOMAIN}`}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-1 flex items-center gap-1.5 text-sm text-green-300 hover:underline"
           >
-            {project.slug}-{project.team.slug}.deltaxs.co
+            {project.slug}-{project.team.slug}.{RDEPLOY_DOMAIN}
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
@@ -225,17 +318,13 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Deploy logs */}
-      {project.deployLogs && (
-        <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            Deploy Logs
-          </h2>
-          <pre className="rounded-lg border border-border bg-black/40 p-4 text-xs text-green-400 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
-            {project.deployLogs}
-          </pre>
-        </div>
-      )}
+      {/* Logs */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          Logs
+        </h2>
+        <LogsViewer projectId={id} status={project.status} />
+      </div>
     </div>
   );
 }

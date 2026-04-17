@@ -1,0 +1,150 @@
+# =============================================================================
+# RDeploy Platform — docker-compose.yml
+# =============================================================================
+#
+# IMPORTANT: Before first run, create the shared network manually:
+#   docker network create rdeploy-net
+#
+# This network is declared external so that user project containers (deployed
+# via Docker CLI by the backend) can also join it independently of compose.
+#
+# -----------------------------------------------------------------------------
+# USER CONTAINER DEPLOYMENT (run by backend via Docker CLI — NOT via compose)
+# -----------------------------------------------------------------------------
+# When a user project is deployed, the backend runs:
+#
+#   docker build \
+#     -t rdeploy-{project-slug}-{team-slug} \
+#     -f {dockerfilePath} \
+#     {workspace}/repo/
+#
+#   docker run -d \
+#     --name rdeploy-{project-slug}-{team-slug} \
+#     --network rdeploy-net \
+#     --env-file {workspace}/.env \
+#     -p {port}:{port} \
+#     --label "traefik.enable=true" \
+#     --label "traefik.http.routers.rdeploy-{project-slug}-{team-slug}.rule=Host(\`{project-slug}-{team-slug}.{RDEPLOY_DOMAIN}\`)" \
+#     --label "traefik.http.routers.rdeploy-{project-slug}-{team-slug}.entrypoints=websecure" \
+#     --label "traefik.http.routers.rdeploy-{project-slug}-{team-slug}.tls.certresolver=letsencrypt" \
+#     --label "traefik.http.services.rdeploy-{project-slug}-{team-slug}.loadbalancer.server.port={port}" \
+#     rdeploy-{project-slug}-{team-slug}
+#
+# Port range: PORT_RANGE_START–PORT_RANGE_END (default 3001–4000).
+# The .env file is written at deploy time and deleted after the container starts.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Traefik — reverse proxy + TLS termination
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.network=rdeploy-net"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "letsencrypt:/letsencrypt"
+    networks:
+      - rdeploy-net
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — platform database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: rdeploy-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rdeploy
+      POSTGRES_USER: rdeploy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rdeploy-net
+
+  # ---------------------------------------------------------------------------
+  # Backend — Express API
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./Codebase/Back-End
+      dockerfile: Dockerfile
+    container_name: rdeploy-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://rdeploy:${POSTGRES_PASSWORD}@postgres:5432/rdeploy
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 7d
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      RDEPLOY_WORKSPACE_DIR: /var/rdeploy/workspaces
+      RDEPLOY_DOMAIN: ${RDEPLOY_DOMAIN}
+      ALLOWED_ORIGINS: https://${RDEPLOY_PLATFORM_SUBDOMAIN}.${RDEPLOY_DOMAIN}
+      PORT_RANGE_START: ${PORT_RANGE_START:-3001}
+      PORT_RANGE_END: ${PORT_RANGE_END:-4000}
+      DOCKER_NETWORK: rdeploy-net
+      SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_CALLBACK_URL: https://${RDEPLOY_PLATFORM_SUBDOMAIN}.${RDEPLOY_DOMAIN}/api/auth/github/callback
+    volumes:
+      - /var/rdeploy/workspaces:/var/rdeploy/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - postgres
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`${RDEPLOY_PLATFORM_SUBDOMAIN}.${RDEPLOY_DOMAIN}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.backend.loadbalancer.server.port=5000"
+    networks:
+      - rdeploy-net
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Next.js app (standalone output)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./Codebase/Front-End
+      dockerfile: Dockerfile
+    container_name: rdeploy-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: https://${RDEPLOY_PLATFORM_SUBDOMAIN}.${RDEPLOY_DOMAIN}
+    depends_on:
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${RDEPLOY_PLATFORM_SUBDOMAIN}.${RDEPLOY_DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+    networks:
+      - rdeploy-net
+
+# =============================================================================
+# Networks & Volumes
+# =============================================================================
+
+networks:
+  rdeploy-net:
+    external: true
+
+volumes:
+  postgres_data:
+  letsencrypt:

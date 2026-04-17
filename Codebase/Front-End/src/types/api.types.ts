@@ -7,5 +7,5 @@ export interface ApiError {
 }
 
 export interface AxiosErrorLike {
-  response?: { data?: { error?: string } };
+  response?: { data?: { error?: string; missingKeys?: string[] } };
 }

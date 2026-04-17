@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import * as projectsService from "@/services/projects.service";
 import type { CreateProjectPayload, UpdateEnvVarsPayload } from "@/services/projects.service";
 import type { AxiosErrorLike } from "@/types/api.types";
+import type { ProjectStatus } from "@/types/project.types";
 
 export function useAllProjects() {
   return useQuery({
@@ -19,11 +20,17 @@ export function useTeamProjects(teamId: string) {
   });
 }
 
+const ACTIVE_STATUSES: ProjectStatus[] = ["building", "cloning"];
+
 export function useProject(id: string) {
   return useQuery({
     queryKey: ["projects", id],
     queryFn: () => projectsService.getProject(id),
     enabled: !!id,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status && ACTIVE_STATUSES.includes(status) ? 2000 : false;
+    },
   });
 }
 
@@ -134,6 +141,74 @@ export function useUpdateEnvVars(projectId: string) {
     onError: (error: unknown) => {
       const err = error as AxiosErrorLike;
       toast.error(err.response?.data?.error ?? "Failed to save environment variables");
+    },
+  });
+}
+
+export function useDeployProject(projectId: string) {
+  return useMutation({
+    mutationFn: (confirmed?: boolean) => projectsService.deployProject(projectId, confirmed),
+  });
+}
+
+export function useRedeployProject(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => projectsService.redeployProject(projectId),
+    onSuccess: () => {
+      toast.success("Redeployment started");
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Redeploy failed");
+    },
+  });
+}
+
+export function useStopProject(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => projectsService.stopProject(projectId),
+    onSuccess: () => {
+      toast.success("Container stopped");
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to stop container");
+    },
+  });
+}
+
+export function useDeployLogs(projectId: string) {
+  return useQuery({
+    queryKey: ["deployLogs", projectId],
+    queryFn: () => projectsService.getDeployLogs(projectId),
+    enabled: !!projectId,
+  });
+}
+
+export function useContainerStatus(projectId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["containerStatus", projectId],
+    queryFn: () => projectsService.getContainerStatus(projectId),
+    enabled: !!projectId && enabled,
+    refetchInterval: enabled ? 30000 : false,
+  });
+}
+
+export function useUploadEnvFile(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => projectsService.uploadEnvFile(projectId, file),
+    onSuccess: (data) => {
+      toast.success(`Uploaded ${data.updated} environment variable(s)`);
+      void queryClient.invalidateQueries({ queryKey: ["envVars", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to upload env file");
     },
   });
 }

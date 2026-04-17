@@ -72,3 +72,56 @@ export async function updateEnvVars(
   const res = await api.put<{ data: { updated: number } }>(`/api/projects/${projectId}/env`, { vars });
   return res.data.data;
 }
+
+export type DeployResult =
+  | { project: Project }
+  | { warning: true; localhostKeys: string[] };
+
+export async function deployProject(
+  projectId: string,
+  confirmed?: boolean
+): Promise<DeployResult> {
+  const res = await api.post<{ data: DeployResult }>(
+    `/api/projects/${projectId}/deploy`,
+    confirmed !== undefined ? { confirmed } : {}
+  );
+  return res.data.data;
+}
+
+export async function redeployProject(projectId: string): Promise<{ project: Project }> {
+  const res = await api.post<{ data: { project: Project } }>(`/api/projects/${projectId}/redeploy`);
+  return res.data.data;
+}
+
+export async function stopProject(projectId: string): Promise<{ message: string }> {
+  const res = await api.post<{ data: { message: string } }>(`/api/projects/${projectId}/stop`);
+  return res.data.data;
+}
+
+export async function getDeployLogs(projectId: string): Promise<{ logs: string }> {
+  const res = await api.get<{ data: { logs: string } }>(`/api/projects/${projectId}/logs`);
+  return res.data.data;
+}
+
+export interface ContainerStatus {
+  running: boolean;
+  exitCode: number;
+  restartCount: number;
+  startedAt: string;
+}
+
+export async function getContainerStatus(projectId: string): Promise<ContainerStatus> {
+  const res = await api.get<{ data: ContainerStatus }>(`/api/projects/${projectId}/container-status`);
+  return res.data.data;
+}
+
+export async function uploadEnvFile(projectId: string, file: File): Promise<{ updated: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await api.post<{ data: { updated: number } }>(
+    `/api/projects/${projectId}/env/upload`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } }
+  );
+  return res.data.data;
+}
