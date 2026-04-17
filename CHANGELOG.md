@@ -199,3 +199,6 @@ All notable changes are documented here, organized by phase.
 - Auto-redeploy on crash — background poller now detects non-zero container exits; restarts container once (restartCount 0→1); marks project failed if it crashes again or restart fails; clean exit (code 0) sets status to stopped
 - Deploy history + rollback — added DeploymentHistory model (max 5 per project, auto-pruned); deploy flow now tags images with sequential deploy numbers; GET /api/projects/:id/deploys endpoint; POST /api/projects/:id/rollback/:deployId endpoint; DeployHistory organism on project detail page with confirm dialog
 - Redeploy on git push — GitHub webhook endpoint with HMAC-SHA256 verification; webhook setup/regenerate/disable per project; webhookSecret stored on Project model; WebhookSetup organism on project detail page with one-time secret display and GitHub setup instructions
+
+### Operations
+- Resource limits per container — added cpuLimit and memoryLimit fields on Project model; PUT /api/projects/:id/resource-limits endpoint; --cpus and --memory flags injected into docker run on deploy and rollback; ResourceLimits organism on project detail page (editable by leader/elder/admin/owner)

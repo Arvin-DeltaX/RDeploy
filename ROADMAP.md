@@ -209,7 +209,7 @@
 - [x] Redeploy on git push (webhook trigger)
 
 ### Operations
-- [ ] Resource limits per container (CPU/memory flags on `docker run`)
+- [x] Resource limits per container (CPU/memory flags on `docker run`)
 - [ ] Multiple replicas per project
 - [ ] Custom domain per project
 - [ ] Email notifications on deploy success/failure
