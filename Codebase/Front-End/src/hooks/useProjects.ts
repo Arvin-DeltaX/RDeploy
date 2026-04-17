@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as projectsService from "@/services/projects.service";
-import type { CreateProjectPayload } from "@/services/projects.service";
+import type { CreateProjectPayload, UpdateEnvVarsPayload } from "@/services/projects.service";
 import type { AxiosErrorLike } from "@/types/api.types";
 
 export function useAllProjects() {
@@ -94,6 +94,46 @@ export function useRemoveProjectMember(projectId: string) {
     onError: (error: unknown) => {
       const err = error as AxiosErrorLike;
       toast.error(err.response?.data?.error ?? "Failed to remove member");
+    },
+  });
+}
+
+export function useCloneRepo(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => projectsService.cloneRepo(projectId),
+    onSuccess: () => {
+      toast.success("Repository connected successfully");
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["envVars", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to connect repository");
+    },
+  });
+}
+
+export function useEnvVars(projectId: string) {
+  return useQuery({
+    queryKey: ["envVars", projectId],
+    queryFn: () => projectsService.getEnvVars(projectId),
+    enabled: !!projectId,
+  });
+}
+
+export function useUpdateEnvVars(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: UpdateEnvVarsPayload[]) =>
+      projectsService.updateEnvVars(projectId, vars),
+    onSuccess: () => {
+      toast.success("Environment variables saved");
+      void queryClient.invalidateQueries({ queryKey: ["envVars", projectId] });
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosErrorLike;
+      toast.error(err.response?.data?.error ?? "Failed to save environment variables");
     },
   });
 }

@@ -1,5 +1,5 @@
 import api from "@/lib/api";
-import type { Project } from "@/types/project.types";
+import type { Project, EnvVar } from "@/types/project.types";
 import type { User } from "@/types/user.types";
 
 export interface ProjectWithTeam extends Project {
@@ -47,4 +47,28 @@ export async function assignProjectMembers(projectId: string, userIds: string[])
 
 export async function removeProjectMember(projectId: string, userId: string): Promise<void> {
   await api.delete(`/api/projects/${projectId}/members/${userId}`);
+}
+
+export async function cloneRepo(projectId: string): Promise<{ project: Project; envKeys: string[] }> {
+  const res = await api.post<{ data: { project: Project; envKeys: string[] } }>(`/api/projects/${projectId}/clone`);
+  return res.data.data;
+}
+
+export async function getEnvVars(projectId: string): Promise<EnvVar[]> {
+  const res = await api.get<{ data: { envVars: EnvVar[] } }>(`/api/projects/${projectId}/env`);
+  return res.data.data.envVars;
+}
+
+export interface UpdateEnvVarsPayload {
+  id: string;
+  value: string;
+  isSecret: boolean;
+}
+
+export async function updateEnvVars(
+  projectId: string,
+  vars: UpdateEnvVarsPayload[]
+): Promise<{ updated: number }> {
+  const res = await api.put<{ data: { updated: number } }>(`/api/projects/${projectId}/env`, { vars });
+  return res.data.data;
 }

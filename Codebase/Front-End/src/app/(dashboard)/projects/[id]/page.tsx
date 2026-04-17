@@ -1,14 +1,17 @@
 "use client";
+
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Users, ExternalLink } from "lucide-react";
-import { useProject } from "@/hooks/useProjects";
+import { Users, ExternalLink, GitBranch } from "lucide-react";
+import { useProject, useCloneRepo, useEnvVars, useUpdateEnvVars } from "@/hooks/useProjects";
 import { useTeam } from "@/hooks/useTeams";
 import { useAuthStore } from "@/store/auth.store";
 import { Spinner } from "@/components/atoms/Spinner";
 import { Button } from "@/components/atoms/Button";
 import { EmptyState } from "@/components/molecules/EmptyState";
 import { HealthBadge } from "@/components/molecules/HealthBadge";
+import { EnvVarsForm } from "@/components/organisms/EnvVarsForm";
 import { cn } from "@/lib/utils";
 import { STATUS_LABELS, STATUS_COLORS } from "@/constants/status";
 import { ROUTES } from "@/constants/routes";
@@ -21,8 +24,27 @@ export default function ProjectDetailPage() {
   const isAdmin = user?.platformRole === "owner" || user?.platformRole === "admin";
   const { data: teamData } = useTeam(project?.teamId ?? "");
   const currentUserTeamMember = teamData?.team.members.find((m) => m.userId === user?.id);
-  const isLeader = currentUserTeamMember?.role === "leader";
+  const teamRole = currentUserTeamMember?.role;
+  const isLeader = teamRole === "leader";
   const canManageMembers = isAdmin || isLeader;
+  const canEditEnv = isAdmin || teamRole === "leader" || teamRole === "elder";
+  const canClone = isAdmin || isLeader;
+
+  const cloneMutation = useCloneRepo(id);
+  const { data: envVars = [] } = useEnvVars(id);
+  const updateEnvMutation = useUpdateEnvVars(id);
+
+  const [cloneError, setCloneError] = useState<string | null>(null);
+
+  function handleClone() {
+    setCloneError(null);
+    cloneMutation.mutate(undefined, {
+      onError: (error: unknown) => {
+        const err = error as { response?: { data?: { error?: string } } };
+        setCloneError(err.response?.data?.error ?? "Failed to connect repository.");
+      },
+    });
+  }
 
   if (isLoading) {
     return (
@@ -43,6 +65,10 @@ export default function ProjectDetailPage() {
 
   const statusLabel = STATUS_LABELS[project.status] ?? project.status;
   const statusColor = STATUS_COLORS[project.status] ?? STATUS_COLORS.pending;
+  const isCloning = project.status === "cloning" || cloneMutation.isPending;
+  const showConnectRepo =
+    canClone && (project.status === "pending" || project.status === "failed");
+  const showEnvVars = project.status !== "pending";
 
   return (
     <div className="space-y-6">
@@ -60,6 +86,12 @@ export default function ProjectDetailPage() {
               {statusLabel}
             </span>
             {project.status === "running" && <HealthBadge status={project.healthStatus} />}
+            {isCloning && (
+              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Spinner />
+                Connecting repository...
+              </span>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">
             Team:{" "}
@@ -72,15 +104,36 @@ export default function ProjectDetailPage() {
           </p>
         </div>
 
-        {canManageMembers && (
-          <Link href={ROUTES.PROJECT_MEMBERS(id)}>
-            <Button variant="outline" size="sm">
-              <Users className="h-4 w-4" />
-              Manage Members
+        <div className="flex items-center gap-2">
+          {showConnectRepo && (
+            <Button
+              size="sm"
+              onClick={handleClone}
+              disabled={cloneMutation.isPending}
+            >
+              <GitBranch className="h-4 w-4" />
+              {cloneMutation.isPending ? "Connecting..." : "Connect Repo"}
             </Button>
-          </Link>
-        )}
+          )}
+
+          {canManageMembers && (
+            <Link href={ROUTES.PROJECT_MEMBERS(id)}>
+              <Button variant="outline" size="sm">
+                <Users className="h-4 w-4" />
+                Manage Members
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
+
+      {/* Clone error */}
+      {cloneError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <p className="text-sm font-medium text-red-400">Connection failed</p>
+          <p className="mt-0.5 text-sm text-red-300">{cloneError}</p>
+        </div>
+      )}
 
       {/* Project Info */}
       <div className="rounded-lg border border-border bg-card p-5 space-y-4">
@@ -141,7 +194,7 @@ export default function ProjectDetailPage() {
         </dl>
       </div>
 
-      {/* Live URL placeholder */}
+      {/* Live URL */}
       {project.status === "running" && project.team && (
         <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-4">
           <p className="text-sm font-medium text-green-400">Project is live</p>
@@ -157,7 +210,22 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Deploy logs placeholder */}
+      {/* Environment Variables */}
+      {showEnvVars && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+            Environment Variables
+          </h2>
+          <EnvVarsForm
+            envVars={envVars}
+            canEdit={canEditEnv}
+            onSave={(vars) => updateEnvMutation.mutate(vars)}
+            isSaving={updateEnvMutation.isPending}
+          />
+        </div>
+      )}
+
+      {/* Deploy logs */}
       {project.deployLogs && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">

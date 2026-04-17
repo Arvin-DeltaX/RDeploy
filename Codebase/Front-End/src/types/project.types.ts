@@ -9,6 +9,13 @@ export type ProjectStatus =
 
 export type HealthStatus = "healthy" | "unhealthy" | "unknown";
 
+export interface EnvVar {
+  id: string;
+  key: string;
+  isSecret: boolean;
+  hasValue: boolean;
+}
+
 export interface Project {
   id: string;
   teamId: string;
