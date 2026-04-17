@@ -213,7 +213,7 @@
 - [x] Multiple replicas per project
 - [x] Custom domain per project
 - [x] Email notifications on deploy success/failure
-- [ ] Project transfer between teams
+- [x] Project transfer between teams
 
 ### Platform
 - [ ] Coolify integration as alternative deployment target
