@@ -1,6 +1,7 @@
 # RDeploy - Project Knowledge Base
 
 > Internal deployment platform for managing team projects via Docker on a single VPS.
+> Last synced: 2026-04-21
 
 ---
 
@@ -10,8 +11,10 @@ RDeploy is a web-based internal deployment platform where teams can:
 
 - Submit pre-standardized GitHub repositories
 - Define environment variables via UI
-- Deploy projects to a VPS using Docker
+- Deploy projects to a VPS using Docker (or Coolify as an alternative target)
 - Access a live URL for each deployed project
+- Scale projects with multiple replicas behind Traefik load balancing
+- Set custom domains, resource limits, and auto-deploy via GitHub webhooks
 
 **Platform URL:** `rdeploy.deltaxs.co`
 **Project URLs:** `{project-slug}-{team-slug}.deltaxs.co`
@@ -19,10 +22,10 @@ RDeploy is a web-based internal deployment platform where teams can:
 
 ### Important: Project Standardization is External
 
-RDeploy does NOT standardize projects. Before submitting a repo to RDeploy, dev teams must use the **Master Prompt** (see `Documents/MASTER_PROMPT.md`) with an AI assistant to:
+RDeploy does NOT standardize projects. Before submitting a repo to RDeploy, dev teams must use the **Standardize Prompt** (`Documents/STANDARDIZE.md`) with an AI assistant to:
 - Create a production-ready `Dockerfile`
 - Create a `.env.example` with all required variables
-- Add a `GET /health` endpoint
+- Add a `GET /health` endpoint returning HTTP 200
 - Manage all config through environment variables
 
 If a repo is missing `Dockerfile` or `.env.example`, RDeploy will reject it with a clear error message.
@@ -38,17 +41,17 @@ If a repo is missing `Dockerfile` or `.env.example`, RDeploy will reject it with
 | Server State     | TanStack Query (caching, polling, mutations, invalidation)        |
 | Forms            | react-hook-form + zod (validation schemas)                        |
 | Notifications    | sonner (toast notifications)                                      |
-| Global State     | Zustand (auth token + current user)                               |
+| Global State     | Zustand with localStorage persistence (auth token + current user) |
 | Backend          | Express + TypeScript                                              |
 | ORM              | Prisma                                                            |
-| Database         | PostgreSQL                                                        |
+| Database         | PostgreSQL 16                                                     |
 | Auth             | Email/password + JWT (7 day expiry, no refresh tokens)            |
-| GitHub           | Optional OAuth connect per user                                   |
-| Deployment       | Docker CLI (managed from backend)                                 |
-| Reverse Proxy    | Traefik (auto-discovers containers via Docker socket + labels)    |
+| GitHub           | Optional OAuth connect per user (for private repos)               |
+| Deployment       | Docker CLI (managed from backend) or Coolify API                  |
+| Reverse Proxy    | Traefik v3.0 (auto-discovers containers via Docker socket + labels, Let's Encrypt TLS) |
 | Real-time Logs   | SSE (Server-Sent Events) during active deploy/clone operations    |
+| Email            | nodemailer over SMTP (optional; gracefully disabled if unconfigured) |
 | UI Theme         | Dark mode                                                         |
-| Logo             | Placeholder (to be provided later)                                |
 
 ---
 
@@ -59,35 +62,32 @@ If a repo is missing `Dockerfile` or `.env.example`, RDeploy will reject it with
 ```
 VPS (single server)
 │
-├── Traefik (reverse proxy)
-│   ├── rdeploy.deltaxs.co        → RDeploy platform
-│   ├── myapp-backend.deltaxs.co  → deployed project container
-│   └── ...
+├── Traefik v3.0 (reverse proxy, Let's Encrypt TLS)
+│   ├── rdeploy.deltaxs.co         → RDeploy platform (frontend + /api)
+│   ├── myapp-backend.deltaxs.co   → deployed project container
+│   └── api.mycompany.com          → deployed project with custom domain
 │
 ├── RDeploy Platform
-│   ├── frontend (Next.js)
-│   └── backend (Express)
+│   ├── frontend (Next.js, port 3000)
+│   └── backend (Express, port 5000)
 │
-├── PostgreSQL
+├── PostgreSQL 16
 │
-└── User Project Containers (one per deployed project)
+└── User Project Containers (one or more per deployed project)
+    └── rdeploy-{project}-{team}-{i}   (replica index suffix)
 ```
 
 ### Storage Layout
 
 ```
-/var/rdeploy/
-├── workspaces/
-│   └── {team-slug}/
-│       └── {project-slug}/
-│           ├── repo/          # Cloned GitHub repo (already standardized)
-│           └── .env           # Written at deploy time only, never committed
-├── traefik/
-│   └── traefik.yml
-└── data/                      # PostgreSQL volume
+/var/rdeploy/workspaces/
+├── {team-slug}/
+│   └── {project-slug}/
+│       ├── repo/          # Cloned GitHub repo
+│       └── .env           # Written at deploy time per-replica, deleted immediately after container starts
 ```
 
-Development uses `.rdeploy/workspaces/` (gitignored) instead of `/var/rdeploy/`.
+Development uses `.rdeploy/workspaces/` (gitignored) instead of `/var/rdeploy/workspaces/`.
 
 Workspace path is configurable via `RDEPLOY_WORKSPACE_DIR` env variable.
 
@@ -95,135 +95,222 @@ Workspace path is configurable via `RDEPLOY_WORKSPACE_DIR` env variable.
 
 ## 4. Data Model
 
+### Enums
+
+| Enum | Values |
+|------|--------|
+| `PlatformRole` | `owner`, `admin`, `user` |
+| `TeamRole` | `leader`, `elder`, `member` |
+| `ProjectStatus` | `pending`, `cloning`, `ready`, `building`, `running`, `failed`, `stopped` |
+| `HealthStatus` | `healthy`, `unhealthy`, `unknown` |
+
 ### User
 
-| Field              | Type     | Notes                                      |
-|--------------------|----------|--------------------------------------------|
-| id                 | UUID     | Primary key                                |
-| email              | String   | Unique                                     |
-| password           | String   | Bcrypt hashed                              |
-| name               | String   |                                            |
-| avatarUrl          | String?  | Nullable                                   |
-| platformRole       | Enum     | owner / admin / user                       |
-| mustChangePassword | Boolean  | Default true, forced change on first login |
-| githubId           | String?  | Nullable, unique                           |
-| githubUsername     | String?  | Nullable                                   |
-| githubAccessToken  | String?  | Nullable, encrypted                        |
-| createdAt          | DateTime |                                            |
-| updatedAt          | DateTime | Auto-updated                               |
+| Field               | Type     | Notes                                           |
+|---------------------|----------|-------------------------------------------------|
+| id                  | UUID     | Primary key                                     |
+| email               | String   | Unique                                          |
+| password            | String   | bcrypt hashed (12 rounds), never returned       |
+| name                | String   |                                                 |
+| avatarUrl           | String?  | Nullable                                        |
+| platformRole        | Enum     | owner / admin / user. Default: user             |
+| mustChangePassword  | Boolean  | Default true. Force change on first login       |
+| githubId            | String?  | Nullable, unique. GitHub OAuth user ID          |
+| githubUsername      | String?  | Nullable. GitHub login name                     |
+| githubAccessToken   | String?  | Nullable, **AES-256-GCM encrypted**             |
+| emailNotifications  | Boolean  | Default true. Receive deploy success/fail emails|
+| createdAt           | DateTime |                                                 |
+| updatedAt           | DateTime | Auto-updated                                    |
 
 ### Team
 
-| Field     | Type     | Notes        |
-|-----------|----------|--------------|
-| id        | UUID     | Primary key  |
-| name      | String   |              |
-| slug      | String   | Unique       |
-| createdAt | DateTime |              |
-| updatedAt | DateTime | Auto-updated |
+| Field     | Type     | Notes              |
+|-----------|----------|--------------------|
+| id        | UUID     | Primary key        |
+| name      | String   |                    |
+| slug      | String   | Globally unique    |
+| createdAt | DateTime |                    |
+| updatedAt | DateTime | Auto-updated       |
 
 ### TeamMember
 
-| Field    | Type     | Notes                   |
-|----------|----------|-------------------------|
-| id       | UUID     | Primary key             |
-| userId   | UUID     | FK → User               |
-| teamId   | UUID     | FK → Team               |
-| role     | Enum     | leader / elder / member |
-| joinedAt | DateTime |                         |
+| Field    | Type     | Notes                                             |
+|----------|----------|---------------------------------------------------|
+| id       | UUID     | Primary key                                       |
+| userId   | UUID     | FK → User (CASCADE delete)                        |
+| teamId   | UUID     | FK → Team (CASCADE delete)                        |
+| role     | Enum     | leader / elder / member                           |
+| joinedAt | DateTime |                                                   |
 
-Constraint: Each team has exactly one leader.
+Unique constraint: `(userId, teamId)` — one membership per user per team.
 
 ### Project
 
-| Field          | Type     | Notes                                                             |
-|----------------|----------|-------------------------------------------------------------------|
-| id             | UUID     | Primary key                                                       |
-| teamId         | UUID     | FK → Team                                                         |
-| name           | String   |                                                                   |
-| slug           | String   | Unique per team                                                   |
-| repoUrl        | String   | GitHub repo URL                                                   |
-| dockerfilePath | String   | Default: `"Dockerfile"`. Use `"backend/Dockerfile"` etc. for monorepos |
-| status         | Enum     | pending / cloning / ready / building / running / failed / stopped |
-| healthStatus   | Enum     | healthy / unhealthy / unknown. Updated by periodic health check.  |
-| port           | Int?     | Auto-assigned from port range                                     |
-| containerId    | String?  | Docker container ID                                               |
-| restartCount   | Int      | Default 0. Incremented each time container exits unexpectedly.    |
-| exitCode       | Int?     | Last container exit code. Null if still running.                  |
-| deployLogs     | String?  | Last deploy output (build + run). Stored as text, max ~50KB.      |
-| createdAt      | DateTime |                                                                   |
-| updatedAt      | DateTime | Auto-updated                                                      |
+| Field          | Type     | Notes                                                                  |
+|----------------|----------|------------------------------------------------------------------------|
+| id             | UUID     | Primary key                                                            |
+| teamId         | UUID     | FK → Team (CASCADE delete)                                             |
+| name           | String   |                                                                        |
+| slug           | String   | Unique per team. Auto-generated, read-only after creation              |
+| repoUrl        | String   | GitHub repo URL (must be https://github.com/...)                       |
+| dockerfilePath | String   | Default: `"Dockerfile"`. Subdirectory path for monorepos               |
+| status         | Enum     | pending / cloning / ready / building / running / failed / stopped      |
+| healthStatus   | Enum     | healthy / unhealthy / unknown. Default: unknown                        |
+| port           | Int?     | First replica's port (backward compat). Auto-assigned from port range  |
+| containerId    | String?  | First replica's container ID (backward compat)                         |
+| restartCount   | Int      | Default 0                                                              |
+| exitCode       | Int?     | Last container exit code. Null if still running                        |
+| deployLogs     | String?  | Last deploy output (build + run). Stored as text, capped at ~50KB      |
+| webhookSecret  | String?  | HMAC-SHA256 secret for GitHub webhook auto-deploy                      |
+| cpuLimit       | String?  | Docker `--cpus` value (e.g. `"0.5"`, `"1"`, `"2.0"`). Applied on next deploy |
+| memoryLimit    | String?  | Docker `--memory` value (e.g. `"256m"`, `"1g"`). Applied on next deploy       |
+| replicaCount   | Int      | Default 1. Range 1–5. Number of containers to run in parallel          |
+| customDomain   | String?  | User-owned hostname (e.g. `"api.mycompany.com"`). Null = use default   |
+| deployTarget   | String   | Default `"docker"`. Also supports `"coolify"`                          |
+| coolifyAppId   | String?  | Coolify application UUID when deployTarget = "coolify"                 |
+| createdAt      | DateTime |                                                                        |
+| updatedAt      | DateTime | Auto-updated                                                           |
+
+Unique constraint: `(teamId, slug)` — project slugs are unique per team.
+
+### ProjectReplica
+
+| Field        | Type     | Notes                                        |
+|--------------|----------|----------------------------------------------|
+| id           | UUID     | Primary key                                  |
+| projectId    | UUID     | FK → Project (CASCADE delete)                |
+| replicaIndex | Int      | 0-based index. 0 = first replica             |
+| containerId  | String?  | Docker container ID for this replica         |
+| port         | Int?     | Port for this replica                        |
+| status       | String   | `"running"`, `"stopped"`, or `"failed"`. Default: `"stopped"` |
+| createdAt    | DateTime |                                              |
+| updatedAt    | DateTime | Auto-updated                                 |
+
+Unique constraint: `(projectId, replicaIndex)`.
 
 ### ProjectAssignment
 
-| Field      | Type     | Notes        |
-|------------|----------|--------------|
-| id         | UUID     | Primary key  |
-| projectId  | UUID     | FK → Project |
-| userId     | UUID     | FK → User    |
-| assignedAt | DateTime |              |
+| Field      | Type     | Notes                             |
+|------------|----------|-----------------------------------|
+| id         | UUID     | Primary key                       |
+| projectId  | UUID     | FK → Project (CASCADE delete)     |
+| userId     | UUID     | FK → User (CASCADE delete)        |
+| assignedAt | DateTime |                                   |
+
+Unique constraint: `(projectId, userId)`.
 
 ### EnvVar
 
-| Field     | Type     | Notes                    |
-|-----------|----------|--------------------------|
-| id        | UUID     | Primary key              |
-| projectId | UUID     | FK → Project             |
-| key       | String   |                          |
-| value     | String   | Encrypted                |
-| isSecret  | Boolean  | Default false            |
-| updatedAt | DateTime |                          |
+| Field     | Type     | Notes                                                |
+|-----------|----------|------------------------------------------------------|
+| id        | UUID     | Primary key                                          |
+| projectId | UUID     | FK → Project (CASCADE delete)                        |
+| key       | String   |                                                      |
+| value     | String   | **AES-256-GCM encrypted**. Empty string if not set   |
+| isSecret  | Boolean  | Default false. Controls display masking              |
+| updatedAt | DateTime |                                                      |
+
+Unique constraint: `(projectId, key)` — one value per key per project.
 
 **isSecret behavior:**
 - `isSecret: true` → value displays as `••••••` in the env vars list — never shown in plaintext after saving
 - `isSecret: false` → value is visible in the list
-- All values (secret or not) are always **editable** — click the field to update
-- Users can **upload a `.env` file** to bulk-fill values — the upload parses the file and maps each key to an existing EnvVar record (unmatched keys are ignored)
-- Values are always stored encrypted in the DB regardless of `isSecret`
+- All values (secret or not) are always **editable**
+- Users can **upload a `.env` file** to bulk-fill values — unmatched keys are ignored
+- Values are always **encrypted in the DB** regardless of `isSecret`
+
+### DeploymentHistory
+
+| Field        | Type     | Notes                                                     |
+|--------------|----------|-----------------------------------------------------------|
+| id           | UUID     | Primary key                                               |
+| projectId    | UUID     | FK → Project (CASCADE delete)                             |
+| imageTag     | String   | Versioned Docker image tag (e.g. `rdeploy-myapp-myteam:3`) |
+| deployLogs   | String?  | Logs from this specific deployment                        |
+| deployedAt   | DateTime | Default: now()                                            |
+| deployedBy   | UUID     | FK → User (SET DEFAULT on user delete)                    |
+| isActive     | Boolean  | Default false. True for the currently running deployment  |
+| deployNumber | Int      | Sequential deployment number per project (starts at 1)   |
+
+Unique constraint: `(projectId, deployNumber)`.
+History is capped at 5 records per project; oldest images are pruned via `docker rmi`.
+
+### PlatformConfig
+
+| Field            | Type     | Notes                                         |
+|------------------|----------|-----------------------------------------------|
+| id               | String   | Always `"singleton"` (one record per platform)|
+| coolifyUrl       | String?  | Coolify instance URL                          |
+| coolifyApiToken  | String?  | **AES-256-GCM encrypted** Coolify API token   |
+| updatedAt        | DateTime | Auto-updated                                  |
+
+Singleton pattern: only one record ever exists. Used to store platform-level Coolify configuration.
+
+### Entity Relationships
+
+```
+User (1) ──< TeamMember >── (1) Team
+User (1) ──< ProjectAssignment >── (1) Project
+User (1) ──< DeploymentHistory >── (1) Project
+
+Team (1) ──────────────────────────< Project
+Project (1) ──────────────────────< EnvVar
+Project (1) ──────────────────────< ProjectReplica
+Project (1) ──────────────────────< DeploymentHistory
+
+PlatformConfig  (singleton, no relations)
+```
 
 ---
 
 ## 5. Roles & Permissions
 
-### Platform Roles
+### Platform Roles (on User)
 
-| Role  | Description            |
-|-------|------------------------|
-| Owner | Platform owner (Arvin) |
-| Admin | Platform administrator |
-| User  | Regular user           |
+| Role  | Description                                                   |
+|-------|---------------------------------------------------------------|
+| owner | Platform owner. Full access. Cannot be deleted by admins      |
+| admin | Platform administrator. Full access. Cannot manage owners     |
+| user  | Regular user. Team-scoped access                              |
 
-### Team Roles
+### Team Roles (on TeamMember)
 
-| Role    | Description                                             |
-|---------|---------------------------------------------------------|
-| Leader  | Full project management. Team can have zero leaders.    |
-| Elder   | Senior member. Can edit env vars.                       |
-| Member  | Read-only viewer.                                       |
+| Role    | Description                                                    |
+|---------|----------------------------------------------------------------|
+| leader  | Full project management. A team can have zero leaders          |
+| elder   | Senior member. Can edit env vars                               |
+| member  | Read-only. Can view projects, logs, members                    |
 
 **Leader removal rules:**
 - A team can have zero leaders — there is no forced minimum
-- If a leader is removed from the team or their user account is deleted, all their TeamMember records are removed; the team simply has no leader
+- If a leader is removed or their user account is deleted, all their TeamMember records are removed; the team simply has no leader
 - Owner/Admin can always perform leader-level actions regardless
 - UI shows a warning banner on teams with no leader
 
 ### Permission Matrix
 
-| Action                    | Owner | Admin | Team Leader | Elder | Member |
-|---------------------------|-------|-------|-------------|-------|--------|
-| Create a team             | yes   | yes   | no          | no    | no     |
-| Delete a team             | yes   | yes   | no          | no    | no     |
-| Add user to team          | yes   | yes   | no          | no    | no     |
-| Remove user from team     | yes   | yes   | no          | no    | no     |
-| Add project to team       | yes   | yes   | yes         | no    | no     |
-| Assign members to project | yes   | yes   | yes         | no    | no     |
-| Deploy / Stop / Delete    | yes   | yes   | yes         | no    | no     |
-| Edit env vars             | yes   | yes   | yes         | yes   | no     |
-| View any project          | yes   | yes   | yes         | yes   | yes    |
-| View logs                 | yes   | yes   | yes         | yes   | yes    |
-| View team member list     | yes   | yes   | yes         | yes   | yes    |
-| Create users              | yes   | yes   | no          | no    | no     |
-| Promote users to admin    | yes   | yes   | no          | no    | no     |
+| Action                        | Owner | Admin | Leader | Elder | Member |
+|-------------------------------|-------|-------|--------|-------|--------|
+| Create / delete team          | ✅    | ✅    | ❌     | ❌    | ❌     |
+| Add / remove team members     | ✅    | ✅    | ❌     | ❌    | ❌     |
+| Add project to team           | ✅    | ✅    | ✅     | ❌    | ❌     |
+| Assign members to project     | ✅    | ✅    | ✅     | ❌    | ❌     |
+| Deploy / Stop / Delete        | ✅    | ✅    | ✅     | ❌    | ❌     |
+| Clone repo                    | ✅    | ✅    | ✅     | ❌    | ❌     |
+| Edit env vars                 | ✅    | ✅    | ✅     | ✅    | ❌     |
+| Rollback deploy               | ✅    | ✅    | ✅     | ❌    | ❌     |
+| Setup/delete webhook          | ✅    | ✅    | ✅     | ❌    | ❌     |
+| Set custom domain             | ✅    | ✅    | ✅     | ❌    | ❌     |
+| Set replicas                  | ✅    | ✅    | ✅     | ❌    | ❌     |
+| Set resource limits           | ✅    | ✅    | ✅     | ✅    | ❌     |
+| Change deploy target          | ✅    | ✅    | ✅     | ❌    | ❌     |
+| Transfer project              | ✅    | ✅    | ❌     | ❌    | ❌     |
+| View any project              | ✅    | ✅    | ✅     | ✅    | ✅     |
+| View logs                     | ✅    | ✅    | ✅     | ✅    | ✅     |
+| View team member list         | ✅    | ✅    | ✅     | ✅    | ✅     |
+| Create users                  | ✅    | ✅    | ❌     | ❌    | ❌     |
+| Promote users to admin        | ✅    | ✅    | ❌     | ❌    | ❌     |
+| Configure Coolify             | ✅    | ✅    | ❌     | ❌    | ❌     |
 
 ---
 
@@ -231,204 +318,372 @@ Constraint: Each team has exactly one leader.
 
 ### Flow
 
-1. No public registration — Owner/Admin creates users with email + default password `"changeme123"`
-2. New user gets `mustChangePassword: true` — first login forces redirect to `/change-password`
+1. No public registration — Owner/Admin creates users with email + default password (`DEFAULT_USER_PASSWORD` env var)
+2. New user gets `mustChangePassword: true` — first login forces redirect to `/change-password` (frontend-enforced only, no API guard)
 3. After password change, `mustChangePassword` set to `false`, normal access
-4. JWT token (7 day expiry, no refresh tokens) used for all API requests
+4. JWT token (7 day expiry, no refresh tokens) used for all API requests via `Authorization: Bearer <token>` header
+
+### JWT Token
+
+**Payload:**
+```json
+{ "id": "uuid", "email": "user@example.com", "platformRole": "user" }
+```
+
+**Algorithm:** HS256 (HMAC-SHA256)
+**Expiry:** 7 days
+**Signing secret:** `JWT_SECRET` env var
+
+### mustChangePassword Enforcement
+
+- Flag is stored in DB and returned in login response
+- **No API-level middleware** blocks requests while flag is true
+- **Frontend-enforced only:** `DashboardGuard` component redirects to `/change-password` if flag is true
+
+### Logout
+
+Client-side only: clear JWT token and user from Zustand store, redirect to login. No server-side invalidation.
 
 ### Slug Generation
 
-Slugs are **auto-generated** from the name on creation using `slugify()`:
+Slugs are **auto-generated** from names on creation using `slugify()`:
 - `"My Team"` → `"my-team"`
-- `"Backend API v2"` → `"backend-api-v2"`
-
-If a slug already exists (collision), append an incrementing suffix: `my-team-2`, `my-team-3`.
-Slugs are read-only after creation — cannot be changed.
+- Collision: append incrementing suffix: `my-team-2`, `my-team-3`
+- Slugs are read-only after creation
 
 ### GitHub Connect (optional)
 
 - Users can link GitHub account from profile page
 - Enables cloning private repos using their GitHub token
 - Not required to use the platform
-- If private repo is submitted without GitHub connected → clear error shown
+- If private repo is submitted without GitHub connected → helpful error shown
+- OAuth state token is a short-lived JWT (10 minute expiry) containing `userId` + random nonce (CSRF protection)
+- GitHub access token stored encrypted (AES-256-GCM) in `User.githubAccessToken`
+- Scope requested: `"repo"` (repository access)
 
 ---
 
 ## 7. API Endpoints
 
-### Auth
+### Auth (`/api/auth`)
 
-| Method | Endpoint                    | Purpose              |
-|--------|-----------------------------|----------------------|
-| POST   | `/api/auth/login`           | Login, get JWT       |
-| POST   | `/api/auth/change-password` | Change password      |
-| GET    | `/api/auth/me`              | Current user profile |
-| GET    | `/api/auth/github`          | Start GitHub OAuth   |
-| GET    | `/api/auth/github/callback` | Complete GitHub link |
-| DELETE | `/api/auth/github`          | Disconnect GitHub    |
+| Method | Path                   | Auth | Authorization           | Purpose                              |
+|--------|------------------------|------|-------------------------|--------------------------------------|
+| POST   | `/login`               | No   | —                       | Login. Body: `{email, password}`. Returns `{token, user}` |
+| GET    | `/me`                  | Yes  | Any user                | Current user profile                 |
+| POST   | `/change-password`     | Yes  | Any user                | Body: `{currentPassword, newPassword (min 8)}`. Sets mustChangePassword=false |
+| PUT    | `/notifications`       | Yes  | Any user                | Body: `{emailNotifications: boolean}`. Update email notification preference |
+| GET    | `/github`              | Yes  | Any user                | Get GitHub OAuth authorization URL   |
+| GET    | `/github/callback`     | No   | HMAC state token        | Complete GitHub OAuth link. Query: `{code, state}`. Redirects to `/profile?github=connected` |
+| DELETE | `/github`              | Yes  | Any user                | Disconnect GitHub account            |
 
-### Admin
+### Admin (`/api/admin`)
 
-| Method | Endpoint               | Purpose          |
-|--------|------------------------|------------------|
-| POST   | `/api/admin/users`     | Create user      |
-| GET    | `/api/admin/users`     | List all users   |
-| PUT    | `/api/admin/users/:id` | Update user role |
-| DELETE | `/api/admin/users/:id` | Delete user      |
+All require `requireAuth` + `requirePlatformRole("owner", "admin")`.
 
-### Teams
+| Method | Path          | Purpose                                     | Request Body                                                 |
+|--------|---------------|---------------------------------------------|--------------------------------------------------------------|
+| POST   | `/users`      | Create user (201)                           | `{email, name, platformRole?}`. New user gets DEFAULT_USER_PASSWORD, mustChangePassword=true |
+| GET    | `/users`      | List all users                              | —                                                            |
+| PUT    | `/users/:id`  | Update user platform role                   | `{platformRole: "owner"\|"admin"\|"user"}`                   |
+| DELETE | `/users/:id`  | Delete user                                 | —                                                            |
+| GET    | `/coolify`    | Get Coolify config                          | Returns `{coolifyUrl, tokenIsSet}` — token never returned    |
+| PUT    | `/coolify`    | Set Coolify URL + API token                 | `{coolifyUrl, coolifyApiToken}`                              |
 
-| Method | Endpoint                         | Purpose       |
-|--------|----------------------------------|---------------|
-| POST   | `/api/teams`                     | Create team   |
-| GET    | `/api/teams`                     | List my teams |
-| GET    | `/api/teams/:id`                 | Team detail   |
-| DELETE | `/api/teams/:id`                 | Delete team   |
-| POST   | `/api/teams/:id/members`         | Add member    |
-| DELETE | `/api/teams/:id/members/:userId` | Remove member |
+### Teams (`/api/teams`)
 
-### Projects
+| Method | Path                          | Auth | Authorization                          | Purpose                |
+|--------|-------------------------------|------|----------------------------------------|------------------------|
+| POST   | `/`                           | Yes  | Owner/Admin                            | Create team (201). Body: `{name}` |
+| GET    | `/`                           | Yes  | Any user (filtered by membership)      | List teams             |
+| GET    | `/:id`                        | Yes  | Any (non-admin must be member)         | Team detail + members  |
+| DELETE | `/:id`                        | Yes  | Owner/Admin                            | Delete team            |
+| POST   | `/:id/members`                | Yes  | `requireTeamRole("leader")`            | Add member (201). Body: `{userId, role}` |
+| DELETE | `/:id/members/:userId`        | Yes  | `requireTeamRole("leader")`            | Remove member          |
 
-| Method | Endpoint                            | Purpose                  |
-|--------|-------------------------------------|--------------------------|
-| POST   | `/api/teams/:teamId/projects`       | Create project           |
-| GET    | `/api/teams/:teamId/projects`       | List team projects       |
-| GET    | `/api/projects`                     | List ALL projects        |
-| GET    | `/api/projects/:id`                 | Project detail           |
-| DELETE | `/api/projects/:id`                 | Hard delete project      |
-| POST   | `/api/projects/:id/clone`           | Clone repo + read env    |
-| GET    | `/api/projects/:id/env`             | Get env keys + whether value is set |
-| PUT    | `/api/projects/:id/env`             | Save env values          |
-| POST   | `/api/projects/:id/env/upload`      | Upload `.env` file to bulk-fill values |
-| POST   | `/api/projects/:id/deploy`          | Build & deploy           |
-| POST   | `/api/projects/:id/redeploy`        | Stop + rebuild + restart (atomic) |
-| POST   | `/api/projects/:id/stop`            | Stop container           |
-| GET    | `/api/projects/:id/logs`            | Persisted deploy logs snapshot (from Project.deployLogs) |
-| GET    | `/api/projects/:id/logs/stream`     | SSE — live output during deploy/clone and from running container |
-| GET    | `/api/projects/:id/container-status` | Real-time container state from Docker inspect (Running, ExitCode, RestartCount, StartedAt) |
-| POST   | `/api/projects/:id/members`         | Assign members           |
-| DELETE | `/api/projects/:id/members/:userId` | Remove member            |
-| GET    | `/api/projects/:id/members`         | List assigned members    |
+### Projects (`/api`)
+
+**Project creation & listing:**
+
+| Method | Path                          | Auth | Authorization              | Purpose                |
+|--------|-------------------------------|------|----------------------------|------------------------|
+| POST   | `/teams/:teamId/projects`     | Yes  | `requireTeamRole("leader")`| Create project (201). Body: `{name (1-100), repoUrl (https://github.com/...), dockerfilePath?}` |
+| GET    | `/teams/:teamId/projects`     | Yes  | `requireTeamRole("member")`| List team projects     |
+| GET    | `/projects`                   | Yes  | Any user (filtered)        | List all visible projects |
+| GET    | `/projects/:id`               | Yes  | Team member                | Project detail (includes replicas) |
+| DELETE | `/projects/:id`               | Yes  | Leader (or owner/admin)    | Hard delete project    |
+
+**Members:**
+
+| Method | Path                              | Auth | Authorization      | Purpose                          |
+|--------|-----------------------------------|------|--------------------|----------------------------------|
+| POST   | `/projects/:id/members`           | Yes  | Leader             | Assign members. Body: `{userIds: UUID[]}` |
+| DELETE | `/projects/:id/members/:userId`   | Yes  | Leader             | Remove member from project       |
+| GET    | `/projects/:id/members`           | Yes  | Team member        | List assigned members            |
+
+**Repository & Environment:**
+
+| Method | Path                          | Auth | Authorization      | Purpose                                                    |
+|--------|-------------------------------|------|--------------------|------------------------------------------------------------|
+| POST   | `/projects/:id/clone`         | Yes  | Leader             | Clone repo, parse .env.example, parse rdeploy.yml. Returns `{project, envKeys, rdeployYml}` |
+| GET    | `/projects/:id/env`           | Yes  | Team member        | List env var keys + `hasValue` (never returns actual values) |
+| PUT    | `/projects/:id/env`           | Yes  | Leader or Elder    | Save env values. Body: `{vars: [{id, value, isSecret}]}`. Values encrypted before storage |
+| POST   | `/projects/:id/env/upload`    | Yes  | Leader or Elder    | Upload `.env` file (max 100KB) to bulk-fill values. Multipart: `file` |
+
+**Deployment:**
+
+| Method | Path                              | Auth | Authorization      | Purpose                                                              |
+|--------|-----------------------------------|------|--------------------|----------------------------------------------------------------------|
+| POST   | `/projects/:id/deploy`            | Yes  | Leader             | Build & deploy. Body: `{confirmed?: boolean}`. May return `{warning: true, localhostKeys}` |
+| POST   | `/projects/:id/redeploy`          | Yes  | Leader             | Stop + rebuild + restart. Body: `{confirmed?: boolean}`              |
+| POST   | `/projects/:id/stop`              | Yes  | Leader             | Stop all containers. Status → stopped                                |
+| GET    | `/projects/:id/deploys`           | Yes  | Team member        | Deployment history list                                              |
+| POST   | `/projects/:id/rollback/:deployId`| Yes  | Leader             | Rollback to previous deployment image                                |
+
+**Configuration:**
+
+| Method | Path                              | Auth | Authorization      | Purpose                                                    |
+|--------|-----------------------------------|------|--------------------|------------------------------------------------------------|
+| PUT    | `/projects/:id/resource-limits`   | Yes  | Leader or Elder    | Body: `{cpuLimit?: string\|null, memoryLimit?: string\|null}`. Applied on next deploy |
+| PUT    | `/projects/:id/replicas`          | Yes  | Leader             | Body: `{replicaCount: 1-5}`. Applied on next deploy        |
+| PUT    | `/projects/:id/custom-domain`     | Yes  | Leader             | Body: `{customDomain: string\|null}`. If running, restarts containers immediately |
+| POST   | `/projects/:id/transfer`          | Yes  | Owner/Admin only   | Body: `{targetTeamId: UUID}`. Move project to another team |
+| PUT    | `/projects/:id/deploy-target`     | Yes  | Leader             | Body: `{deployTarget: "docker"\|"coolify"}`                |
+
+**Webhooks:**
+
+| Method | Path                              | Auth | Authorization      | Purpose                                           |
+|--------|-----------------------------------|------|--------------------|---------------------------------------------------|
+| POST   | `/projects/:id/webhook/setup`     | Yes  | Leader             | Generate HMAC secret + return webhook URL         |
+| GET    | `/projects/:id/webhook`           | Yes  | Team member        | Get webhook URL + `{hasSecret: boolean}`          |
+| DELETE | `/projects/:id/webhook`           | Yes  | Leader             | Disable webhook (clear secret)                    |
+
+**Observability:**
+
+| Method | Path                              | Auth | Authorization      | Purpose                                           |
+|--------|-----------------------------------|------|--------------------|---------------------------------------------------|
+| GET    | `/projects/:id/logs`              | Yes  | Team member        | Get persisted deploy logs (`Project.deployLogs`)  |
+| GET    | `/projects/:id/logs/stream`       | Yes  | Team member        | SSE stream. Query: `?type=deploy\|app`            |
+| GET    | `/projects/:id/container-status`  | Yes  | Team member        | Live docker inspect: `{running, exitCode, restartCount, startedAt}` |
+| GET    | `/projects/:id/rdeploy-yml`       | Yes  | Team member        | Parsed rdeploy.yml content                        |
+
+### Webhooks (`/api/webhooks`)
+
+| Method | Path                    | Auth              | Purpose                                              |
+|--------|-------------------------|-------------------|------------------------------------------------------|
+| POST   | `/github/:projectId`    | HMAC-SHA256 only  | GitHub push event receiver. Triggers background redeploy |
+
+- No JWT authentication — HMAC-SHA256 signature verified via `x-hub-signature-256` header using `crypto.timingSafeEqual()`
+- Returns 200 immediately; deploy runs in background
+- Resolves system user (owner > admin > team leader) to attach to deployment history
+
+### Health Check
+
+| Method | Path          | Auth | Purpose                     |
+|--------|---------------|------|-----------------------------|
+| GET    | `/api/health` | No   | Returns `{status: "ok"}`    |
 
 ---
 
 ## 8. Frontend Pages
 
-| Page            | Route                      | Access        |
-|-----------------|----------------------------|---------------|
-| Login           | `/login`                   | Public        |
-| Change Password | `/change-password`         | Authenticated |
-| Dashboard       | `/`                        | All users     |
-| My Teams        | `/teams`                   | All users     |
-| Team Detail     | `/teams/[id]`              | All users     |
-| Add Project     | `/teams/[id]/projects/new` | Leader+       |
-| Project Detail  | `/projects/[id]`           | All users     |
-| Project Members | `/projects/[id]/members`   | Leader+       |
-| Admin Panel     | `/admin`                   | Owner/Admin   |
-| Profile         | `/profile`                 | Authenticated |
+| Page              | Route                       | Access                    |
+|-------------------|-----------------------------|---------------------------|
+| Login             | `/login`                    | Public                    |
+| Change Password   | `/change-password`          | Authenticated             |
+| Dashboard         | `/`                         | All users (DashboardGuard)|
+| My Teams          | `/teams`                    | All users                 |
+| Team Detail       | `/teams/[id]`               | All users (member check)  |
+| Add Project       | `/teams/[id]/projects/new`  | Leader+                   |
+| Project Detail    | `/projects/[id]`            | All users (member check)  |
+| Project Members   | `/projects/[id]/members`    | Leader+                   |
+| Admin Panel       | `/admin`                    | Owner/Admin               |
+| Profile           | `/profile`                  | Authenticated             |
+
+### DashboardGuard
+
+Wraps all dashboard routes. Redirects:
+- No token → `/login`
+- `mustChangePassword: true` → `/change-password`
+
+### Project Detail Page — Sections
+
+The most complex page. Sections shown conditionally by status and permissions:
+
+1. **Header** — name, status badge, health badge, connect repo button
+2. **Container Status Bar** — uptime, restart count, exit code, port (when running, polls every 30s)
+3. **Project Details** — slug, repo URL, Dockerfile path, port
+4. **Live URL** — clickable link when `status === "running"`
+5. **Environment Variables** — `EnvVarsForm` (hidden when pending)
+6. **Logs** — tabbed: Deploy Logs + App Logs (SSE)
+7. **Deploy History** — table with rollback capability
+8. **Resource Limits** — CPU/memory editor (changes applied on next deploy)
+9. **Deploy Target** — Docker / Coolify radio selector
+10. **Replicas** — count 1–5 editor (changes applied on next deploy)
+11. **Custom Domain** — hostname editor
+12. **Auto Deploy (Webhook)** — GitHub webhook setup with instructions
+13. **Transfer Project** — danger zone, Owner/Admin only
+
+**Permission flags used on page:**
+- `canDeploy` = owner/admin OR team leader
+- `canEditEnv` = owner/admin OR team leader OR team elder
+- `canManageMembers` = owner/admin OR team leader
+- `canClone` = owner/admin OR team leader
 
 ---
 
 ## 9. Deployment Flow
 
-```
-1. Team leader adds project (name + GitHub URL)
+### Connect Repo (Clone)
 
-2. Click "Connect Repo"
-   → Backend clones the repo to workspace
-   → Validates: Dockerfile exists? .env.example exists?
-   → If missing either → status: "failed" + error message shown
-   → If valid → reads .env.example, extracts keys, saves to DB
-   → Status: pending → cloning → ready (or failed)
-   → Clone failure reason stored in deployLogs field for display
+Status transitions: `pending/failed` → `cloning` → `ready` (or `failed`)
 
-3. User fills in env var values via the generated form on project page
-
-4. Click "Deploy"
-   → Guard: if project status is "building" or "cloning" → reject with 409 (deploy already in progress)
-   → Pre-deploy validation:
-      - Check all env var keys have non-empty values → if any missing, return error listing the empty keys
-      - Scan values for localhost/127.0.0.1/0.0.0.0 → return warning (non-blocking, user must confirm)
-   → If project already has a running container → stop and remove it first (atomic redeploy)
-   → Auto-inject PORT={assigned-port} into the .env file (in addition to user-defined vars)
-   → Backend writes .env file from decrypted DB values to workspace
-   → Builds Docker image: docker build -t rdeploy-{project}-{team} -f {dockerfilePath} {workspace}/repo/
-   → Scans DB for used ports → assigns lowest free port in PORT_START–PORT_END range
-   → Runs container with --network rdeploy-net + Traefik labels for routing
-   → Stores container ID + port in DB
-   → Deletes .env file from workspace immediately after docker run starts
-   → Stores full build + run output in Project.deployLogs (capped at ~50KB, truncate from top if exceeded)
-   → Status: ready → building → running (or failed)
-   → Build output streamed live to UI via SSE (GET /api/projects/:id/logs/stream)
-   → After container starts: wait 15 seconds → hit GET http://{container-ip}:{port}/health
-      - 200 response → healthStatus: healthy
-      - Timeout / non-200 → healthStatus: unhealthy (status stays "running", warning shown in UI)
-
-5. Project is live at {project-slug}-{team-slug}.deltaxs.co
-
-6. Health check polling (background, every 60 seconds)
-   → For every project with status "running":
-      - docker inspect {containerId} → check State.Running, State.ExitCode, RestartCount
-      - If container not running → update status: failed, store exitCode
-      - If running → hit GET http://{container-ip}:{port}/health
-        - 200 → healthStatus: healthy
-        - Failure → healthStatus: unhealthy
-
-7. Delete project
-   → Stop & remove Docker container
-   → Remove Docker image (docker rmi rdeploy-{project}-{team})
-   → Delete workspace folder
-   → Delete all DB records (project, env vars, assignments)
-```
-
-### Pre-Deploy Validation Rules
-
-| Check | Behavior |
-|-------|----------|
-| Any env var value is empty | Block deploy — return error listing empty keys |
-| Value contains `localhost`, `127.0.0.1`, or `0.0.0.0` | Return warning — user must confirm before deploy proceeds |
-| Project status is `building` or `cloning` | Block deploy — return 409 "Deploy already in progress" |
-
-### Health Check Behavior
-
-- Health checks require the container to expose `GET /health` returning HTTP 200
-- The Master Prompt enforces this — all standardized repos must include this endpoint
-- `healthStatus` values: `healthy` / `unhealthy` / `unknown` (unknown = not yet checked or container stopped)
-- A project can be `status: running` with `healthStatus: unhealthy` — container is up but app is broken
-- Health check failures do NOT automatically stop or redeploy the container — the team must investigate
+1. Validate user is team leader (or owner/admin)
+2. Validate status is `pending` or `failed` (prevents re-clone of running project)
+3. Set status → `cloning`, clear deployLogs
+4. Resolve workspace path: `<RDEPLOY_WORKSPACE_DIR>/<teamSlug>/<projectSlug>/repo`
+5. Validate URL: must be `https://github.com/...` (HTTPS only, GitHub only)
+6. If user has GitHub token: inject into clone URL as `https://<token>@github.com/...`
+7. `git clone <url> <workspacePath>` — `spawnSync`, 120s timeout. GitHub token scrubbed from any error messages
+8. Validate Dockerfile exists at `dockerfilePath`. If missing → status `failed` + error message
+9. Validate `.env.example` exists at repo root. If missing → status `failed` + error message
+10. Parse `.env.example`: extract all `KEY=VALUE` lines (skip comments, blank lines). Delete old EnvVar records, create new ones with empty values
+11. Parse `rdeploy.yml` if present (using `js-yaml`)
+12. Set status → `ready`
+13. Return `{project, envKeys, rdeployYml}`
 
 ---
 
-## 10. Project Validation Rules
+### Deploy Flow (Docker target)
+
+Status transitions: `ready/failed/stopped/running` → `building` → `running` (or `failed`)
+
+**Pre-deploy validation:**
+- Guard: status must not be `building` or `cloning` → 409 if true
+- Guard: all env var values must be non-empty → 400 + `{missingKeys: [...]}`
+- Warning: if any value contains `localhost`, `127.0.0.1`, or `0.0.0.0` and `confirmed !== true` → return `{warning: true, localhostKeys: [...]}` (user must re-submit with `confirmed: true`)
+- Permission: leader required (unless webhook trigger)
+
+**Deploy steps:**
+1. Load and decrypt all env vars from DB
+2. Stop and remove all existing replica containers
+3. Set status → `building`, clear deployLogs
+4. Validate Dockerfile path (no path traversal)
+5. `docker build -t rdeploy-{projectSlug}-{teamSlug} -f {dockerfilePath} {repoDir}` — stdout/stderr streamed via SSE
+6. For each replica index `i` from `0` to `replicaCount - 1`:
+   a. Call `getAvailablePort()` — query DB for used ports, return lowest unused in `PORT_RANGE_START`–`PORT_RANGE_END`
+   b. Write `.env` file: `PORT={replicaPort}\nKEY1=VAL1\n...`
+   c. `docker run -d --name rdeploy-{projectSlug}-{teamSlug}-{i} --network <DOCKER_NETWORK> --env-file <envFilePath> -p {port}:{port} [--cpus=<cpuLimit>] [--memory=<memoryLimit>] --label traefik.enable=true --label traefik.http.routers.rdeploy-{projectSlug}-{teamSlug}.rule=Host(\`{projectSlug}-{teamSlug}.{RDEPLOY_DOMAIN}\`) --label traefik.http.services.rdeploy-{projectSlug}-{teamSlug}.loadbalancer.server.port={port} [custom domain labels if set] rdeploy-{projectSlug}-{teamSlug}`
+   d. Upsert `ProjectReplica` record with `containerId`, `port`, `status: "running"`
+   e. Delete `.env` file immediately (security — plaintext secrets must not persist)
+7. Remove stale replicas (if `replicaCount` was reduced): stop+remove containers, delete DB records
+8. Tag image: `docker tag <tag> <tag>:{deployNumber}` and `<tag>:latest`
+9. Create `DeploymentHistory` record (mark previous as inactive)
+10. Prune history: keep max 5 records, `docker rmi` old image tags
+11. Update project: status → `running`, store first replica's containerId/port in Project
+12. After 15 seconds (background): `GET http://localhost:{firstReplicaPort}/health` → update `healthStatus` to `healthy` or `unhealthy`
+13. Send success emails to project members + team leaders/elders with `emailNotifications: true`
+
+**Error handling:**
+- Delete `.env` file in `finally` block
+- Set status → `failed`, save logs
+- Send failure emails (fire-and-forget)
+
+---
+
+### Deploy Flow (Coolify target)
+
+1. Load and decrypt all env vars from DB
+2. Set status → `building`, clear logs
+3. If no `coolifyAppId`: Create Coolify app via `POST /api/v1/applications` with name, repoUrl, dockerfilePath
+4. Store returned UUID as `project.coolifyAppId`
+5. Set env vars: `POST /api/v1/applications/{appId}/envs`
+6. Trigger start: `POST /api/v1/applications/{appId}/start`
+7. Set status → `running`, logs → `"Deployed via Coolify."`
+
+---
+
+### Stop Flow
+
+1. Stop and remove all `ProjectReplica` containers
+2. Stop and remove legacy `project.containerId` container (if set)
+3. Update all ProjectReplica statuses → `"stopped"`
+4. Update project: status → `stopped`, healthStatus → `unknown`
+
+---
+
+### Delete Flow
+
+1. Validate leader permission
+2. Stop + remove all replica containers: `docker stop` + `docker rm` (errors ignored)
+3. Stop + remove legacy container (if set)
+4. `docker rmi rdeploy-{projectSlug}-{teamSlug}` (errors ignored)
+5. Delete workspace: `fs.rmSync(<workspace>/teamSlug/projectSlug, {recursive: true, force: true})` — path traversal validated
+6. `prisma.project.delete(...)` → cascades to EnvVar, ProjectReplica, ProjectAssignment, DeploymentHistory
+
+---
+
+### Rollback Flow
+
+1. Validate leader permission
+2. Load DeploymentHistory record for `deployId`
+3. Stop current containers
+4. Run new containers using the stored `imageTag` (versioned tag)
+5. Update `isActive` flags: old → false, this one → true
+6. Update project status → `running`
+
+---
+
+## 10. Pre-Deploy Validation Rules
+
+| Check | Behavior |
+|-------|----------|
+| Any env var value is empty | Block deploy — return 400 + `{missingKeys: [...]}` |
+| Value contains `localhost`, `127.0.0.1`, or `0.0.0.0` | Return `{warning: true, localhostKeys}` — re-submit with `confirmed: true` |
+| Status is `building` or `cloning` | Return 409 "Deploy already in progress" |
+
+---
+
+## 11. Health Check Behavior
+
+- Health checks make `HTTP GET http://localhost:{port}/health` (plain HTTP, no custom headers, 5s timeout)
+- Target: `localhost` on the VPS (the container port is published to the host)
+- Initial check: fires 15 seconds after deploy completes (background, non-blocking)
+- Periodic poll: every 60 seconds for all `status: "running"` projects
+- `healthStatus` values: `healthy` / `unhealthy` / `unknown` (unknown = not yet checked or container stopped)
+- A project can be `status: running` with `healthStatus: unhealthy` — container is up but app is broken
+- Health check failures do NOT automatically stop or redeploy the container
+
+---
+
+## 12. Project Validation Rules
 
 When a repo is cloned, RDeploy checks:
 
 | Check | Required | Error if missing |
 |-------|----------|-----------------|
-| Dockerfile exists at `dockerfilePath` | YES | "Dockerfile missing at {path}. Use the Master Prompt to standardize your project first." |
-| `.env.example` exists at repo root | YES | ".env.example missing. Use the Master Prompt to standardize your project first." |
-
-`dockerfilePath` defaults to `"Dockerfile"` (repo root). For monorepos, it can be set to a subdirectory path like `"backend/Dockerfile"` when creating the project.
+| Dockerfile at `dockerfilePath` | YES | "Dockerfile missing at {path}. Use the Master Prompt to standardize your project first." |
+| `.env.example` at repo root | YES | ".env.example missing. Use the Master Prompt to standardize your project first." |
 
 RDeploy does NOT generate or modify any files in the repo.
 
-## 10a. Multi-Service / Monorepo Projects
+---
+
+## 13. Multi-Service / Monorepo Projects
 
 If a GitHub repo contains multiple services (e.g. backend + frontend), each service is submitted as a **separate project** in RDeploy, all pointing to the same repo URL but with different `dockerfilePath` values.
 
 Example — repo `github.com/org/my-app`:
 
-| Project name | dockerfilePath | URL |
-|---|---|---|
-| `my-app-backend` | `backend/Dockerfile` | `my-app-backend-my-team.deltaxs.co` |
-| `my-app-frontend` | `frontend/Dockerfile` | `my-app-frontend-my-team.deltaxs.co` |
+| Project name      | dockerfilePath       | URL                                          |
+|-------------------|----------------------|----------------------------------------------|
+| `my-app-backend`  | `backend/Dockerfile` | `my-app-backend-my-team.deltaxs.co`          |
+| `my-app-frontend` | `frontend/Dockerfile`| `my-app-frontend-my-team.deltaxs.co`         |
 
-The repo must contain a root-level `rdeploy.yml` that documents all deployable services. RDeploy does not parse this file — it exists as a guide for the team leader when setting up projects.
+The repo must contain a root-level `rdeploy.yml` that documents all deployable services. RDeploy **parses** this file (using `js-yaml`) and returns the service list after cloning, which is displayed in the `MonorepoSuggestions` component with pre-filled "Create Project" links.
 
 **`rdeploy.yml` format:**
 ```yaml
-# RDeploy multi-service config
-# Each entry maps to one project you create in RDeploy
 services:
   backend:
     dockerfile: backend/Dockerfile
@@ -438,29 +693,95 @@ services:
     description: Next.js frontend
 ```
 
-The `.env.example` at repo root must contain variables for **all services combined**. RDeploy uses one env form per project — each project gets its own subset of env vars filled in.
+If file is missing or malformed, `rdeployYml.found` is `false` and no suggestions are shown.
 
 ---
 
-## 11. Observability
+## 14. Multi-Replica Support
 
-### Project Page — What the Team Sees
+Projects can run 1–5 identical container replicas. All replicas share the same Traefik router name, so Traefik automatically load-balances requests across them.
 
-The project detail page surfaces all signals needed to diagnose issues without needing SSH access:
+**Key behaviors:**
+- `replicaCount` defaults to 1; set via `PUT /projects/:id/replicas`
+- Changes to `replicaCount` apply on the **next deploy/redeploy**
+- Each replica gets a unique port from the pool and a unique container name: `rdeploy-{project}-{team}-{i}`
+- All replicas are tracked in `ProjectReplica` table (0-based index)
+- `Project.containerId` and `Project.port` always reflect replica index 0 (backward compat)
+- Reducing replica count: stale replicas are stopped/removed during the next deploy
+- Health check is performed against replica 0's port
 
-```
-┌──────────────────────────────────────────────────────┐
-│ my-api                              ● Unhealthy       │
-│ Status: running  |  Up 2h 14m  |  3 restarts         │
-│ Exit code: —  (container still running)               │
-│                                                        │
-│ [ View App Logs ]  [ View Deploy Logs ]  [ Redeploy ] │
-└──────────────────────────────────────────────────────┘
-```
+---
 
-#### Status Badge
+## 15. Deploy History & Rollback
 
-Shows `Project.status` (pending / cloning / ready / building / running / failed / stopped) with color:
+- Every successful deploy creates a `DeploymentHistory` record with a versioned image tag (e.g. `rdeploy-myapp-myteam:3`)
+- Max 5 history records kept per project; older records are deleted and their Docker images pruned via `docker rmi`
+- `isActive: true` marks the currently running deployment
+- Rollback: `POST /projects/:id/rollback/:deployId` stops current containers and runs the stored image tag
+- History accessible via `GET /projects/:id/deploys`
+
+---
+
+## 16. GitHub Webhooks (Auto-Deploy)
+
+Setup:
+1. `POST /projects/:id/webhook/setup` — generates a random 32-byte hex `webhookSecret`, stores on project, returns webhook URL
+2. User configures webhook in GitHub repo settings: payload URL, `application/json`, secret, "Push event" only
+
+Trigger flow:
+1. GitHub sends `POST /api/webhooks/github/:projectId` with `x-hub-signature-256` header
+2. Backend verifies HMAC-SHA256 signature using `crypto.timingSafeEqual()` (timing-safe)
+3. Returns 200 immediately; triggers background redeploy with `confirmed: true` (skips localhost warning)
+4. Resolves system user (owner → admin → team leader) for `deployedBy` in history
+5. Webhook deploys bypass permission checks
+
+---
+
+## 17. Custom Domains
+
+- Set via `PUT /projects/:id/custom-domain` with a valid hostname (no protocol, no path, e.g. `api.mycompany.com`)
+- When a custom domain is set, running containers are **restarted immediately** with updated Traefik labels
+- Two Traefik routers per container: one for `{project}-{team}.deltaxs.co`, one for the custom domain (with TLS)
+- Traefik handles TLS certificate issuance via Let's Encrypt automatically
+- User must point their domain's A record to the VPS IP
+
+---
+
+## 18. Resource Limits
+
+- CPU limit: Docker `--cpus` value (e.g. `"0.5"`, `"1"`, `"2.0"`)
+- Memory limit: Docker `--memory` value (e.g. `"256m"`, `"512m"`, `"1g"`)
+- Both nullable (null = no limit)
+- Set via `PUT /projects/:id/resource-limits`
+- **Applied on next deploy/redeploy** (not immediately to running containers)
+
+---
+
+## 19. Coolify Integration
+
+Coolify is an alternative deployment target (instead of local Docker).
+
+**Configuration (platform-wide):**
+- Set once via admin panel: `PUT /api/admin/coolify` with Coolify instance URL + API token
+- Token stored encrypted in `PlatformConfig.coolifyApiToken`
+- Viewed via `GET /api/admin/coolify` (returns `{coolifyUrl, tokenIsSet}` — token never exposed)
+
+**Per-project:**
+- Change deploy target: `PUT /projects/:id/deploy-target` with `{deployTarget: "coolify"}`
+- Requires Coolify to be configured platform-wide first (returns 400 if not)
+
+**Coolify deploy flow:**
+1. If no `coolifyAppId`: creates app via Coolify API with project slug, repo URL, dockerfile path
+2. Sets env vars on the Coolify app
+3. Triggers start/deploy
+
+**Stop:** `POST /api/v1/applications/{appId}/stop`
+
+---
+
+## 20. Observability
+
+### Status Badge
 
 | Status   | Color  |
 |----------|--------|
@@ -472,46 +793,43 @@ Shows `Project.status` (pending / cloning / ready / building / running / failed 
 | ready    | blue   |
 | pending  | gray   |
 
-#### Health Badge (separate from status badge)
+### Health Badge (shown only when `status === "running"`)
 
-Shows `Project.healthStatus`:
+| Value     | Display         | Color |
+|-----------|-----------------|-------|
+| healthy   | ● Healthy       | green |
+| unhealthy | ● Unhealthy     | red   |
+| unknown   | ● Unknown       | gray  |
 
-| Value     | Display             | Color  |
-|-----------|---------------------|--------|
-| healthy   | ● Healthy           | green  |
-| unhealthy | ● Unhealthy         | red    |
-| unknown   | ● Unknown           | gray   |
+### Container Status Bar
 
-Only shown when `status === "running"`.
+Polls `GET /projects/:id/container-status` (live docker inspect) every 30 seconds when running:
+- **Uptime** — calculated from `State.StartedAt`
+- **Restart count** — amber warning if > 0
+- **Exit code** — shown only if container stopped
+- **Port**
 
-#### Container Info Row
-
-Pulled from `GET /api/projects/:id/container-status` (docker inspect, live):
-
-| Field          | Source                        | Display                         |
-|----------------|-------------------------------|---------------------------------|
-| Uptime         | State.StartedAt               | "Up 2h 14m"                     |
-| Restart count  | RestartCount                  | "3 restarts" (warning if > 0)   |
-| Exit code      | State.ExitCode                | Shown only if container stopped |
-
-Frontend polls this endpoint every 30 seconds when status is `running`.
-
-#### Logs Viewer — Two Tabs
-
-```
-[ Deploy Logs ]   [ App Logs ]
-```
+### Logs Viewer — Two Tabs
 
 **Deploy Logs tab:**
-- Shows `Project.deployLogs` (stored text from last build + run)
-- Always available — persisted to DB during deploy
-- Useful even when container is stopped or deleted
+- During `cloning` or `building`: connects via SSE (`EventSource` equivalent using native `fetch` with auth header) to `GET /projects/:id/logs/stream`, displays line-by-line with auto-scroll, shows "Live" badge
+- When inactive: displays `Project.deployLogs` (persisted, always available)
 
 **App Logs tab:**
-- Streams live `docker logs --follow {containerId}` via SSE
-- Same `GET /api/projects/:id/logs/stream` endpoint, with `?type=app` query param
-- Only works while container is running
-- Shows last 100 lines on connect, then streams new output
+- Only active when `status === "running"`
+- Connects to `GET /projects/:id/logs/stream?type=app` — streams `docker logs --tail=100 --follow`
+- Closes SSE on unmount or when status changes from `running`
+
+### SSE Implementation
+
+The frontend `useSSELogs` hook uses native `fetch` (not `EventSource`) to send the `Authorization: Bearer <token>` header, which `EventSource` does not support. The stream sends `data:` lines and ends with `data:[DONE]`.
+
+### Container Status Polling
+
+| Hook | Interval | Enabled When |
+|------|----------|--------------|
+| `useProject` | 2000ms | `status === "building" \| "cloning"` |
+| `useContainerStatus` | 30000ms | enabled prop = true |
 
 ### Diagnosing Common Problems
 
@@ -519,355 +837,354 @@ Frontend polls this endpoint every 30 seconds when status is `running`.
 |---------|-------|
 | Status: failed immediately | Deploy Logs tab — build error |
 | Status: running, Health: unhealthy | App Logs tab — app crash/exception |
-| Restart count > 0 | App Logs tab — app keeps crashing on start |
-| Exit code 137 | App was OOM killed — reduce memory usage |
+| Restart count > 0 | App Logs tab — app keeps crashing |
+| Exit code 137 | OOM killed — reduce memory or set memoryLimit |
 | Exit code 1 | App error — check App Logs |
 | 502 from Traefik | App not listening on PORT — check App Logs |
 
 ---
 
-## 12. Security Rules
+## 21. Email Notifications
 
-- Passwords stored as bcrypt hashes
-- Env var values encrypted in database using AES-256-GCM (Node `crypto` built-in, no extra dependency)
-- Each encrypted value uses a unique random IV — same value stored twice produces different ciphertext
-- Encryption key sourced from `ENCRYPTION_KEY` env var (must be 32 bytes)
-- GitHub access tokens encrypted in database (same AES-256-GCM approach)
-- `.env` files written to workspace at deploy time, **deleted immediately after `docker run` starts** — plaintext secrets must not persist on disk; the DB (encrypted) is the source of truth
-- Users edit env vars through the RDeploy UI, never by editing files on the VPS
-- JWT tokens expire after 7 days — no refresh tokens (internal tool, simplicity over convenience)
-- No secrets in source code
-- `.rdeploy/` directory gitignored
+- Deploy success + failure emails sent to: all project assignments + team leaders/elders with `emailNotifications: true`
+- Success email: project name, team name, live URL
+- Failure email: project name, team name, last 20 non-empty lines of deploy logs
+- Sent via nodemailer over SMTP (fire-and-forget; errors logged but not propagated)
+- **SMTP is optional** — if `SMTP_HOST` is not set, emails are silently skipped
+- Users can toggle `emailNotifications` via the profile page
 
 ---
 
-## 13. Seed Data
+## 22. Security Rules
+
+- Passwords stored as bcrypt hashes (12 rounds)
+- Env var values encrypted in database using AES-256-GCM
+- Each encrypted value uses a unique random 12-byte IV — same value stored twice produces different ciphertext
+- Encryption format: `{iv_hex}:{authTag_hex}:{ciphertext_hex}` (colon-separated hex)
+- Encryption key sourced from `ENCRYPTION_KEY` env var (must be exactly 64 hex chars = 32 bytes)
+- GitHub access tokens encrypted in database (same AES-256-GCM)
+- Coolify API token encrypted in database (same AES-256-GCM)
+- `.env` files written to workspace at deploy time, **deleted in `finally` block immediately after container starts** — plaintext secrets must not persist on disk
+- JWT tokens expire after 7 days — no refresh tokens
+- GitHub OAuth state token is a short-lived JWT (10 min) with random nonce (CSRF protection)
+- Webhook signatures use `crypto.timingSafeEqual()` (timing attack prevention)
+- All Docker commands use `spawnSync`/`spawn` (not `exec`/`execSync`) to prevent shell injection
+- Repo URLs validated: must be `https://github.com/...`
+- All workspace paths validated against base directory (path traversal prevention)
+- `ALLOWED_ORIGINS` env var controls CORS (restrictive)
+- Required env vars (`JWT_SECRET`, `ENCRYPTION_KEY`) validated at startup — process exits if missing
+
+---
+
+## 23. Seed Data
 
 On first run, the platform creates:
 
-| Field              | Value                                 |
-|--------------------|---------------------------------------|
-| email              | arvin@thesx.co                        |
-| name               | Arvin                                 |
-| platformRole       | owner                                 |
-| mustChangePassword | false                                 |
-| password           | Set via env var `SEED_OWNER_PASSWORD` |
+| Field              | Value                                  |
+|--------------------|----------------------------------------|
+| email              | arvin@thesx.co                         |
+| name               | Arvin                                  |
+| platformRole       | owner                                  |
+| mustChangePassword | false                                  |
+| password           | Set via env var `SEED_OWNER_PASSWORD`  |
 
 ---
 
-## 14. Environment Variables (Platform Config)
+## 24. Environment Variables (Platform Config)
 
-```env
-# Database
-DATABASE_URL=postgresql://rdeploy:password@localhost:5432/rdeploy
+### Required
 
-# JWT
-JWT_SECRET=your-secret-key
-JWT_EXPIRES_IN=7d
+| Variable              | Service          | Purpose                                                              |
+|-----------------------|------------------|----------------------------------------------------------------------|
+| `DATABASE_URL`        | Backend          | PostgreSQL connection string. Format: `postgresql://rdeploy:<pw>@postgres:5432/rdeploy` |
+| `POSTGRES_PASSWORD`   | Docker Compose   | PostgreSQL container password                                        |
+| `JWT_SECRET`          | Backend          | JWT signing secret (HS256). Process exits if missing                 |
+| `ENCRYPTION_KEY`      | Backend          | AES-256-GCM key. Must be exactly 64 hex characters (32 bytes). Process exits if missing |
+| `RDEPLOY_DOMAIN`      | Backend          | Base domain. Default: `deltaxs.co`                                   |
+| `RDEPLOY_PLATFORM_SUBDOMAIN` | Docker Compose | Platform subdomain. Default: `rdeploy`                        |
+| `RDEPLOY_PLATFORM_URL`| Backend          | Full platform URL (e.g. `https://rdeploy.deltaxs.co`)                |
+| `RDEPLOY_WORKSPACE_DIR` | Backend        | Base directory for workspaces. Default: `.rdeploy/workspaces`        |
+| `DOCKER_NETWORK`      | Backend          | Shared Docker network name. Default: `rdeploy-net`                   |
+| `SEED_OWNER_PASSWORD` | Backend          | Initial password for the seeded owner account                        |
+| `DEFAULT_USER_PASSWORD` | Backend        | Default password for admin-created users (must change on first login)|
+| `ACME_EMAIL`          | Traefik          | Email for Let's Encrypt certificate notifications                    |
+| `NEXT_PUBLIC_API_URL` | Frontend         | Backend API base URL. Production: `https://rdeploy.deltaxs.co`. Dev: `http://localhost:5000` |
 
-# GitHub OAuth (for optional GitHub connect)
-GITHUB_CLIENT_ID=
-GITHUB_CLIENT_SECRET=
-GITHUB_CALLBACK_URL=https://rdeploy.deltaxs.co/api/auth/github/callback
+### Optional
 
-# Workspace
-RDEPLOY_WORKSPACE_DIR=/var/rdeploy/workspaces
-
-# Domain
-RDEPLOY_DOMAIN=deltaxs.co
-RDEPLOY_PLATFORM_URL=https://rdeploy.deltaxs.co
-
-# Frontend → Backend API URL
-# In production: https://rdeploy.deltaxs.co (Traefik routes /api/* to backend)
-# In development: http://localhost:5000
-NEXT_PUBLIC_API_URL=https://rdeploy.deltaxs.co
-
-# Seed
-SEED_OWNER_PASSWORD=changeme
-
-# Encryption — AES-256-GCM via Node crypto (must be exactly 32 bytes)
-ENCRYPTION_KEY=your-32-byte-encryption-key-here
-
-# Port range for deployed project containers
-# Sequential scan: lowest free port in range is assigned at deploy time
-PORT_RANGE_START=3001
-PORT_RANGE_END=4000
-
-# Docker network — all platform services and user containers join this network
-# Traefik auto-discovers containers on this network via Docker socket + labels
-DOCKER_NETWORK=rdeploy-net
-```
+| Variable              | Service          | Default          | Purpose                                              |
+|-----------------------|------------------|------------------|------------------------------------------------------|
+| `JWT_EXPIRES_IN`      | Backend          | `7d`             | JWT token expiry                                     |
+| `GITHUB_CLIENT_ID`    | Backend          | (empty)          | GitHub OAuth app client ID                           |
+| `GITHUB_CLIENT_SECRET`| Backend          | (empty)          | GitHub OAuth app secret                              |
+| `GITHUB_CALLBACK_URL` | Backend          | Constructed      | GitHub OAuth redirect URI                            |
+| `PORT_RANGE_START`    | Backend          | `3001`           | Lowest port for deployed containers                  |
+| `PORT_RANGE_END`      | Backend          | `4000`           | Highest port for deployed containers                 |
+| `ALLOWED_ORIGINS`     | Backend          | (same-origin)    | CORS allowed origins (comma-separated)               |
+| `PORT`                | Backend          | `5000`           | Backend HTTP port                                    |
+| `SMTP_HOST`           | Backend          | (empty)          | SMTP server hostname. Empty = disable email          |
+| `SMTP_PORT`           | Backend          | `587`            | SMTP port                                            |
+| `SMTP_USER`           | Backend          | (empty)          | SMTP auth username                                   |
+| `SMTP_PASS`           | Backend          | (empty)          | SMTP auth password                                   |
+| `SMTP_FROM`           | Backend          | `RDeploy <noreply@rdeploy.deltaxs.co>` | Sender "From" address          |
+| `NEXT_PUBLIC_RDEPLOY_DOMAIN` | Frontend | `deltaxs.co`    | Domain displayed for project URLs in UI              |
 
 ---
 
-## 15. Docker Compose (Platform)
+## 25. Docker Compose (Platform)
 
-Services:
-- `traefik` — reverse proxy, handles all routing
-- `frontend` — Next.js app
-- `backend` — Express API
-- `postgres` — PostgreSQL database
-
-All services join the shared Docker network `rdeploy-net`.
-
-User project containers are managed directly via Docker CLI from the backend, NOT via docker-compose.
-Every user container is started with `--network rdeploy-net` so Traefik can discover and route to it automatically.
-
-### Docker Network
-
-```
-Network: rdeploy-net (bridge)
-│
-├── traefik       ← watches Docker socket for containers joining this network
-├── frontend      ← rdeploy.deltaxs.co
-├── backend       ← internal API
-├── postgres      ← internal DB
-└── [user containers]  ← each joined at deploy time via --network rdeploy-net
+**Network:** `rdeploy-net` declared as `external: true`. Must be created manually before starting:
+```bash
+docker network create rdeploy-net
 ```
 
-Traefik uses Docker labels on each user container to know the hostname to route:
+### Services
+
+| Service             | Image/Build                   | Port | Purpose                                                      |
+|---------------------|-------------------------------|------|--------------------------------------------------------------|
+| `traefik`           | `traefik:v3.0`                | 80, 443 | Reverse proxy. Routes by hostname + path prefix. Let's Encrypt TLS |
+| `rdeploy-postgres`  | `postgres:16-alpine`          | 5432 (internal) | Database                                            |
+| `rdeploy-backend`   | Build: `./Codebase/Back-End`  | 5000 (internal) | Express API                                         |
+| `rdeploy-frontend`  | Build: `./Codebase/Front-End` | 3000 (internal) | Next.js app                                         |
+
+### Traefik Routing
+
+| Request | Router | Target |
+|---------|--------|--------|
+| `rdeploy.deltaxs.co` + `PathPrefix(/api)` | backend | backend:5000 |
+| `rdeploy.deltaxs.co` (all other) | frontend | frontend:3000 |
+| `{project}-{team}.deltaxs.co` | auto-discovered | user container:{port} |
+
+**TLS:** Let's Encrypt TLS Challenge. Certificate stored in `letsencrypt` named volume at `/letsencrypt/acme.json`.
+
+### Traefik Labels on User Containers
+
 ```
 traefik.enable=true
-traefik.http.routers.{name}.rule=Host(`{project-slug}-{team-slug}.deltaxs.co`)
-traefik.http.services.{name}.loadbalancer.server.port={assigned-port}
+traefik.http.routers.rdeploy-{project}-{team}.rule=Host(`{project}-{team}.deltaxs.co`)
+traefik.http.services.rdeploy-{project}-{team}.loadbalancer.server.port={port}
 ```
 
-### Port Assignment
+Custom domain (additional router):
+```
+traefik.http.routers.rdeploy-{project}-{team}-custom.rule=Host(`{customDomain}`)
+traefik.http.routers.rdeploy-{project}-{team}-custom.entrypoints=websecure
+traefik.http.routers.rdeploy-{project}-{team}-custom.tls=true
+traefik.http.routers.rdeploy-{project}-{team}-custom.service=rdeploy-{project}-{team}
+```
 
-- Port range: `PORT_RANGE_START` to `PORT_RANGE_END` (default 3001–4000)
-- At deploy time: query DB for all used ports → pick lowest number in range not already taken
-- Port stored on `Project.port` column
-- Port freed when project is deleted (DB record removed)
+All replicas share the same Traefik router name → Traefik load-balances across them automatically.
+
+### Docker Volumes
+
+| Volume          | Mounted In | Purpose                           |
+|-----------------|------------|-----------------------------------|
+| `postgres_data` | postgres   | Persistent database files         |
+| `letsencrypt`   | traefik    | Let's Encrypt certificates (ACME) |
+| `/var/rdeploy/workspaces` (bind) | backend | Repository workspaces |
+| `/var/run/docker.sock` (bind) | traefik (read-only), backend | Docker API |
+
+### Port Assignment for User Containers
+
+- Range: `PORT_RANGE_START` to `PORT_RANGE_END` (default 3001–4000, supports ~1000 projects)
+- At deploy time: query DB for all used ports → pick lowest unused number in range
+- Port stored on `Project.port` (and per-replica in `ProjectReplica.port`)
+- Port freed when project is deleted
 - If range exhausted → deploy fails with error "No available ports"
 
 ---
 
-## 16. Project Structure
+## 26. Background Health Poller
 
-```
-RDeploy/
-├── Codebase/
-│   ├── Front-End/
-│   │   ├── src/
-│   │   │   ├── app/                          # Next.js App Router
-│   │   │   │   ├── (auth)/                   # Auth route group (no sidebar)
-│   │   │   │   │   ├── login/
-│   │   │   │   │   │   └── page.tsx
-│   │   │   │   │   ├── change-password/
-│   │   │   │   │   │   └── page.tsx
-│   │   │   │   │   └── layout.tsx            # Auth layout (centered card)
-│   │   │   │   ├── (dashboard)/              # App route group (with sidebar)
-│   │   │   │   │   ├── page.tsx              # / Dashboard
-│   │   │   │   │   ├── teams/
-│   │   │   │   │   │   ├── page.tsx          # /teams
-│   │   │   │   │   │   └── [id]/
-│   │   │   │   │   │       ├── page.tsx      # /teams/[id]
-│   │   │   │   │   │       └── projects/
-│   │   │   │   │   │           └── new/
-│   │   │   │   │   │               └── page.tsx
-│   │   │   │   │   ├── projects/
-│   │   │   │   │   │   └── [id]/
-│   │   │   │   │   │       ├── page.tsx      # /projects/[id]
-│   │   │   │   │   │       └── members/
-│   │   │   │   │   │           └── page.tsx
-│   │   │   │   │   ├── admin/
-│   │   │   │   │   │   └── page.tsx
-│   │   │   │   │   ├── profile/
-│   │   │   │   │   │   └── page.tsx
-│   │   │   │   │   └── layout.tsx            # Dashboard layout (sidebar + topbar)
-│   │   │   │   ├── layout.tsx                # Root layout
-│   │   │   │   └── globals.css
-│   │   │   │
-│   │   │   ├── components/                   # Atomic Design
-│   │   │   │   ├── atoms/                    # Smallest building blocks
-│   │   │   │   │   ├── Button/
-│   │   │   │   │   ├── Badge/
-│   │   │   │   │   ├── Input/
-│   │   │   │   │   ├── Label/
-│   │   │   │   │   ├── Avatar/
-│   │   │   │   │   ├── Spinner/
-│   │   │   │   │   ├── Separator/
-│   │   │   │   │   └── Logo/
-│   │   │   │   ├── molecules/                # Combinations of atoms
-│   │   │   │   │   ├── FormField/            # Label + Input + error message
-│   │   │   │   │   ├── StatusBadge/          # Badge with color by project status
-│   │   │   │   │   ├── UserAvatar/           # Avatar + name
-│   │   │   │   │   ├── SearchInput/          # Input with search icon
-│   │   │   │   │   ├── ConfirmDialog/        # Reusable confirm modal
-│   │   │   │   │   ├── CopyButton/           # Button that copies text
-│   │   │   │   │   └── EmptyState/           # Empty list placeholder
-│   │   │   │   ├── organisms/                # Complex UI sections
-│   │   │   │   │   ├── Sidebar/              # App sidebar with nav links
-│   │   │   │   │   ├── Topbar/               # Top navigation bar
-│   │   │   │   │   ├── ProjectCard/          # Project card for dashboard
-│   │   │   │   │   ├── ProjectTable/         # Project list table
-│   │   │   │   │   ├── EnvVarsForm/          # Dynamic env var input form
-│   │   │   │   │   ├── LogsViewer/           # Deploy Logs + App Logs tabs (SSE stream)
-│   │   │   │   │   ├── TeamMemberList/       # Team members table
-│   │   │   │   │   ├── AddMemberModal/       # Modal to add team member
-│   │   │   │   │   ├── CreateTeamModal/      # Modal to create a team
-│   │   │   │   │   ├── CreateUserModal/      # Modal to create a user (admin)
-│   │   │   │   │   ├── DeployButton/         # Deploy/stop button with confirm
-│   │   │   │   │   └── ContainerStatusBar/   # Uptime, restart count, exit code, health badge
-│   │   │   │   ├── templates/                # Page layout templates
-│   │   │   │   │   ├── AuthTemplate/         # Centered card layout for auth pages
-│   │   │   │   │   └── DashboardTemplate/    # Sidebar + content layout
-│   │   │   │   └── providers/               # React context providers
-│   │   │   │       └── AuthProvider/         # Auth context (current user, JWT)
-│   │   │   │
-│   │   │   ├── hooks/                        # Custom React hooks
-│   │   │   │   ├── useAuth.ts               # Auth state + login/logout
-│   │   │   │   ├── useProjects.ts           # Projects data fetching
-│   │   │   │   ├── useTeams.ts              # Teams data fetching
-│   │   │   │   └── useDebounce.ts           # Debounce utility hook
-│   │   │   │
-│   │   │   ├── services/                    # API call functions (per resource)
-│   │   │   │   ├── auth.service.ts
-│   │   │   │   ├── users.service.ts
-│   │   │   │   ├── teams.service.ts
-│   │   │   │   └── projects.service.ts
-│   │   │   │
-│   │   │   ├── store/                       # Global state (Zustand)
-│   │   │   │   └── auth.store.ts            # Auth state store
-│   │   │   │
-│   │   │   ├── lib/                         # Pure utilities
-│   │   │   │   ├── api.ts                   # Axios instance — base URL + JWT interceptor + 401 handler
-│   │   │   │   └── utils.ts                 # cn(), slugify(), formatDate() — format: DD/MM/YYYY
-│   │   │   │
-│   │   │   ├── types/                       # TypeScript types & interfaces
-│   │   │   │   ├── user.types.ts
-│   │   │   │   ├── team.types.ts
-│   │   │   │   ├── project.types.ts
-│   │   │   │   └── api.types.ts             # API response shapes
-│   │   │   │
-│   │   │   └── constants/                   # App-wide constants
-│   │   │       ├── routes.ts                # Route path constants
-│   │   │       └── status.ts                # Project status labels/colors
-│   │   │
-│   │   ├── public/
-│   │   │   └── logo-placeholder.svg
-│   │   ├── package.json
-│   │   ├── tailwind.config.ts
-│   │   ├── tsconfig.json
-│   │   └── Dockerfile
-│   │
-│   └── Back-End/
-│       ├── src/
-│       │   ├── routes/          # Express route handlers
-│       │   │   ├── auth.routes.ts
-│       │   │   ├── admin.routes.ts
-│       │   │   ├── teams.routes.ts
-│       │   │   └── projects.routes.ts
-│       │   ├── middleware/      # Express middleware
-│       │   │   ├── requireAuth.ts       # JWT guard
-│       │   │   ├── requirePlatformRole.ts
-│       │   │   └── requireTeamRole.ts
-│       │   ├── services/        # Business logic
-│       │   │   ├── auth.service.ts
-│       │   │   ├── docker.service.ts    # Docker CLI interactions
-│       │   │   ├── git.service.ts       # Repo cloning
-│       │   │   └── env.service.ts       # .env.example parsing + encryption
-│       │   ├── utils/           # Pure helpers
-│       │   │   ├── encryption.ts        # Encrypt/decrypt env values
-│       │   │   ├── slugify.ts
-│       │   │   └── ports.ts             # Auto-assign available port
-│       │   └── index.ts         # Entry point
-│       ├── prisma/
-│       │   ├── schema.prisma
-│       │   └── seed.ts
-│       ├── package.json
-│       ├── tsconfig.json
-│       └── Dockerfile
-│
-├── Documents/
-│   ├── MASTER_PROMPT.md
-│   └── WORKFLOW.md
-│
-├── docker-compose.yml
-├── .env.example
-├── .gitignore
-├── ROADMAP.md
-├── KNOWLEDGE_BASE.md
-├── CLAUDE.md
-└── README.md
-```
+Runs every 60 seconds on the backend (started in `index.ts`):
+
+For every project with `status === "running"`:
+1. `docker inspect {containerId}` → check `State.Running`, `State.ExitCode`, `RestartCount`
+2. If container not running → update project status → `failed`
+3. If running → `GET http://localhost:{port}/health`
+   - 200 → `healthStatus: "healthy"`
+   - Failure → `healthStatus: "unhealthy"`
+4. For replicas: checks each `ProjectReplica.containerId`, updates replica status
+5. If ALL replicas failed → project status → `failed`
 
 ---
 
-## 17. Frontend Component Rules (Atomic Design)
+## 27. Frontend Architecture
 
-### Atoms
-Single-purpose, no business logic. Wrap or extend shadcn/ui primitives.
-- Examples: Button, Badge, Input, Label, Avatar, Spinner, Logo
+### File Structure
 
-### Molecules
-Combine 2–3 atoms into a reusable UI pattern. Still no business logic.
-- Examples: FormField (Label + Input + error), StatusBadge (Badge + color logic), ConfirmDialog
+```
+Codebase/Front-End/src/
+├── app/
+│   ├── (auth)/                    # No sidebar. Auth layout.
+│   │   ├── login/page.tsx
+│   │   ├── change-password/page.tsx
+│   │   └── layout.tsx
+│   ├── (dashboard)/               # With sidebar. DashboardGuard.
+│   │   ├── page.tsx               # /  — Dashboard (all projects grid)
+│   │   ├── teams/page.tsx         # /teams
+│   │   ├── teams/[id]/page.tsx    # /teams/[id]
+│   │   ├── teams/[id]/projects/new/page.tsx
+│   │   ├── projects/[id]/page.tsx # /projects/[id]
+│   │   ├── projects/[id]/members/page.tsx
+│   │   ├── admin/page.tsx
+│   │   ├── profile/page.tsx
+│   │   └── layout.tsx
+│   ├── layout.tsx                 # Root layout (dark mode, Providers, Sonner)
+│   └── globals.css
+│
+├── components/
+│   ├── atoms/         Button, Badge, Input, Label, Avatar, Spinner, Select, Switch
+│   ├── molecules/     FormField, StatusBadge, HealthBadge, UserAvatar, ConfirmDialog, CopyButton, EmptyState
+│   ├── organisms/     Sidebar, EnvVarsForm, LogsViewer, DeployButton, ContainerStatusBar,
+│   │                  CustomDomain, DeployHistory, DeployTarget, MonorepoSuggestions,
+│   │                  ReplicaManager, ResourceLimits, TransferProject, WebhookSetup,
+│   │                  ProjectCard, ProjectMemberList, TeamMemberList, AddMemberModal,
+│   │                  AssignMemberModal, CreateTeamModal, CreateUserModal
+│   ├── templates/     (layouts — AuthTemplate, DashboardTemplate)
+│   └── providers/
+│       ├── DashboardGuard/    Auth guard for dashboard routes
+│       └── Providers/         QueryClient setup (retry: 1, staleTime: 30s)
+│
+├── hooks/
+│   ├── useAuth.ts        login, logout, GitHub connect, change password
+│   ├── useAdmin.ts       Coolify config query/mutation
+│   ├── useProjects.ts    all project queries and mutations
+│   ├── useTeams.ts       team queries and mutations
+│   ├── useUsers.ts       user management
+│   └── useSSELogs.ts     SSE streaming (native fetch with auth header)
+│
+├── services/             One file per resource, all use lib/api.ts
+│   ├── auth.service.ts
+│   ├── admin.service.ts
+│   ├── projects.service.ts
+│   ├── teams.service.ts
+│   └── users.service.ts
+│
+├── store/
+│   └── auth.store.ts     Zustand. Persisted to localStorage as "rdeploy-auth". {token, user, setAuth, logout}
+│
+├── lib/
+│   ├── api.ts            Axios instance. Base URL: NEXT_PUBLIC_API_URL. JWT interceptor. 401 → logout.
+│   └── utils.ts          cn(), slugify(), formatDate() (DD/MM/YYYY)
+│
+├── types/
+│   ├── api.types.ts      ApiResponse<T>, ApiError, AxiosErrorLike
+│   ├── user.types.ts     User, PlatformRole
+│   ├── team.types.ts     Team, TeamMember, TeamRole
+│   └── project.types.ts  Project, ProjectReplica, EnvVar, ProjectStatus, HealthStatus, RdeployYmlResult
+│
+└── constants/
+    ├── routes.ts         All route path constants
+    └── status.ts         STATUS_LABELS, STATUS_COLORS, HEALTH_COLORS
+```
 
-### Organisms
-Complex sections with their own internal state or data props. No direct API calls.
-- Examples: EnvVarsForm, LogsViewer, Sidebar, ProjectCard, TeamMemberList
-
-### Templates
-Page layout shells. Define structure (sidebar, content area, header). No data.
-- Examples: AuthTemplate, DashboardTemplate
-
-### Providers
-React context wrappers. Handle global state like auth.
-- Examples: AuthProvider
-
-### Rules
-- Each component lives in its own folder: `ComponentName/index.tsx`
-- Co-locate styles and sub-components inside the folder if needed
-- No API calls inside components — use hooks or pass data as props
-- Hooks (`hooks/`) handle data fetching via service functions
-- Services (`services/`) contain all API call logic
-- Store (`store/`) for global state that persists across pages (auth)
-
----
-
-## 18. Frontend Data Flow
+### Data Flow
 
 ```
 page → TanStack Query hook → service function → lib/api.ts (axios) → backend
 ```
 
-### Layer Responsibilities
+| Layer | Responsibility |
+|-------|---------------|
+| `lib/api.ts` | Axios instance: base URL, attach JWT header, 401 → logout |
+| `services/` | Plain async functions: call axios, return typed data |
+| `hooks/` | TanStack Query: caching, polling, invalidation, mutations |
+| `store/` | Zustand: JWT token + user across page refreshes |
+| Components | Props only — never fetch directly |
 
-| Layer | Tool | Responsibility |
-|-------|------|---------------|
-| `lib/api.ts` | Axios instance | Base URL, attach JWT header via interceptor, handle 401 → logout |
-| `services/` | Plain async functions | Call axios, return typed data — one file per resource |
-| `hooks/` | TanStack Query | Caching, loading/error state, polling, invalidation |
-| `store/` | Zustand | JWT token + current user — persisted across pages |
-| Components | Props only | Receive data as props, never fetch directly |
+### TanStack Query Config
 
-### TanStack Query Patterns
+- `retry: 1`
+- `staleTime: 30_000ms`
+- `useProject`: auto-refetch every 2s when `status === "building" | "cloning"`
+- `useContainerStatus`: auto-refetch every 30s
 
-```typescript
-// Polling during active deploy (status changes)
-useQuery({
-  queryKey: ['project', id],
-  queryFn: () => getProject(id),
-  refetchInterval: (data) => data?.status === 'building' ? 2000 : false,
-})
+---
 
-// Invalidate after mutation
-useMutation({
-  mutationFn: deployProject,
-  onSuccess: () => queryClient.invalidateQueries(['project', id]),
-})
+## 28. Error Handling & Validation
+
+### API Error Response Shape
+
+All errors:
+```json
+{ "error": "message here" }
 ```
 
-### SSE (Live Logs)
+Deploy-specific errors may include extra fields:
+```json
+{ "error": "Missing env var values", "missingKeys": ["DATABASE_URL", "API_KEY"] }
+{ "warning": true, "localhostKeys": ["DB_HOST"] }
+```
 
-**Deploy Logs tab:**
-- During `cloning` or `building`: connects to `GET /api/projects/:id/logs/stream` via `EventSource`, displays output line-by-line with auto-scroll, shows a "Live" badge
-- When not actively deploying: displays `Project.deployLogs` (persisted text) via `GET /api/projects/:id/logs`
-- Always available — even after container is gone
+### Global Error Handler (backend)
 
-**App Logs tab:**
-- Only active when `status === "running"`
-- Connects to `GET /api/projects/:id/logs/stream?type=app` via `EventSource` — streams `docker logs --follow`
-- Shows last 100 lines on connect, then streams new output live
-- Shows "Live" badge while connected; closes `EventSource` on unmount or when status changes away from `running`
+| Error type | Status | Response |
+|------------|--------|----------|
+| `ZodError` | 400 | Validation messages concatenated |
+| Prisma P2002 (unique violation) | 409 | "A record with that value already exists" |
+| Prisma P2025 (not found) | 404 | "Record not found" |
+| Error with `statusCode` property | statusCode | Error message |
+| All other errors | 500 | "Internal server error" (never exposes internals) |
+
+### HTTP Status Codes
+
+| Code | Use |
+|------|-----|
+| 200  | Success (GET, some POST) |
+| 201  | Resource created |
+| 400  | Validation error, business logic error |
+| 401  | Missing/invalid JWT, invalid webhook signature |
+| 403  | Insufficient role/permission |
+| 404  | Resource not found |
+| 409  | Conflict (deploy in progress, unique constraint) |
+| 413  | File too large (env file > 100KB) |
+| 500  | Internal server error |
+
+### Backend Zod Schemas (key examples)
+
+| Schema | Endpoint | Key Rules |
+|--------|----------|-----------|
+| `loginSchema` | POST /auth/login | email: valid email, password: min 1 |
+| `changePasswordSchema` | POST /auth/change-password | newPassword: min 8 |
+| `createProjectSchema` | POST /teams/:id/projects | name: 1-100 chars, repoUrl: must be https://github.com/..., dockerfilePath: no `..` components |
+| `updateEnvVarsSchema` | PUT /projects/:id/env | vars array min 1, value: no newlines, id: UUID |
+| `resourceLimitsSchema` | PUT /projects/:id/resource-limits | cpuLimit: positive number string or null, memoryLimit: `\d+[mg]` or null |
+| `replicaCountSchema` | PUT /projects/:id/replicas | integer 1–5 |
+| `customDomainSchema` | PUT /projects/:id/custom-domain | RFC 1123 hostname or null |
+
+### Frontend Form Validation (Zod)
+
+| Form | Key Rules |
+|------|-----------|
+| Login | email: valid email, password: min 1 |
+| Change Password | currentPassword: min 1, newPassword: min 8, confirmPassword: must match |
+| New Project | name: 1-100, repoUrl: valid URL containing `github.com`, dockerfilePath: optional |
+| Create Team | name: min 1, max 80 |
+| Add Member | userId: required, role: enum |
+| Create User | email: valid, name: min 1, platformRole: enum |
+
+---
+
+## 29. Backend Services Reference
+
+| Service File | Domain | Key Functions |
+|---|---|---|
+| `auth.service.ts` | Auth | `login`, `getMe`, `changePassword`, `updateNotificationPreferences` |
+| `admin.service.ts` | User management | `createUser`, `listUsers`, `updateUserRole`, `deleteUser` |
+| `teams.service.ts` | Teams | `createTeam`, `listTeams`, `getTeam`, `deleteTeam`, `addMember`, `removeMember` |
+| `projects.service.ts` | Project CRUD | `createProject`, `listTeamProjects`, `listAllProjects`, `getProject`, `deleteProject`, `assignMembers`, `removeProjectMember` |
+| `deploy.service.ts` | Deployment | `runDeployFlow`, `checkLeaderPermission`, `checkMemberAccess`, `healthCheckHttp` |
+| `docker.service.ts` | Docker CLI | `buildImage`, `runContainer`, `stopContainer`, `removeContainer`, `startContainer`, `removeImage`, `tagImage`, `inspectContainer`, `streamContainerLogs` |
+| `git.service.ts` | Git | `cloneRepo`, `parseRdeployYml` |
+| `env.service.ts` | Env vars | `getEnvVars`, `updateEnvVars` |
+| `github.service.ts` | GitHub OAuth | `generateOAuthStateToken`, `verifyOAuthStateToken`, `exchangeCodeForToken`, `fetchGitHubUser`, `linkGitHubAccount`, `disconnectGitHub`, `getDecryptedGitHubToken` |
+| `coolify.service.ts` | Coolify | `getCoolifyConfig`, `setCoolifyConfig`, `deployToCoolify`, `stopCoolifyApp`, `getCoolifyAppStatus` |
+| `email.service.ts` | Email | `sendDeploySuccess`, `sendDeployFailure` |
+
+| Utility File | Purpose |
+|---|---|
+| `utils/encryption.ts` | `encrypt(text)`, `decrypt(text)` — AES-256-GCM |
+| `utils/slugify.ts` | `slugify(name)` — kebab-case |
+| `utils/ports.ts` | `getAvailablePort()` — sequential scan of DB-tracked ports |
+| `lib/prisma.ts` | Singleton PrismaClient instance |

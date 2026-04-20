@@ -89,6 +89,7 @@ If you completed work outside those commands, run `/update-docs` manually:
 | `/restyle` | sonnet | Change component styles — respects atomic layers, ripple-checks dependents |
 | `/review` | sonnet | Code review, convention checks |
 | `/update-docs` | haiku | Mark tasks done, update ROADMAP + CHANGELOG |
+| `/kb-sync` | opus | **Full KB audit** — reads actual codebase and updates KNOWLEDGE_BASE.md to match reality |
 | `/phase-start` | haiku | Create phase branch, set status to In Progress |
 | `/phase-finish` | haiku | Verify phase complete, merge to main |
 
@@ -144,4 +145,19 @@ Phase all done?                    → /phase-finish (you trigger)
 | App starts | No broken imports or runtime errors |
 | ROADMAP.md | Task marked `[x]` |
 | CHANGELOG.md | Entry added under current phase |
+| KNOWLEDGE_BASE.md | Updated if task changed any API, data model, permission rule, deployment flow, platform requirement, or auth behavior |
 | Commit message | Follows `type(scope): description` |
+
+### When Must KNOWLEDGE_BASE.md Be Updated?
+
+| Changed | Update KB? |
+|---------|-----------|
+| New or modified API endpoint | YES |
+| Prisma schema change (model, field, enum) | YES |
+| Permission rule change | YES |
+| Deployment flow step added or changed | YES |
+| Platform requirement changed (Dockerfile, .env.example, health check) | YES |
+| Auth behavior changed (JWT, mustChangePassword, GitHub connect) | YES |
+| UI-only change (styles, layout, copy) | NO |
+| Refactor with no behavior change | NO |
+| Bug fix that restores documented behavior | NO |

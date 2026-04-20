@@ -32,7 +32,7 @@ RDeploy/
 ├── Codebase/
 │   ├── Front-End/       # Next.js app
 │   └── Back-End/        # Express API
-├── Documents/           # MASTER_PROMPT.md, WORKFLOW.md
+├── Documents/           # STANDARDIZE.md, WORKFLOW.md
 ├── docker-compose.yml
 ├── .env.example
 ├── KNOWLEDGE_BASE.md    # Full spec (data model, API, permissions)
@@ -46,4 +46,4 @@ RDeploy/
 - Task list → `ROADMAP.md`
 - Completed work → `CHANGELOG.md`
 - Workflow rules → `Documents/WORKFLOW.md`
-- AI standardization prompt → `Documents/MASTER_PROMPT.md`
+- AI standardization prompt → `Documents/STANDARDIZE.md`
